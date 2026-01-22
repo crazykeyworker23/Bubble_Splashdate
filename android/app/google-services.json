@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "408128401118",
+    "project_id": "bubble-splash-36aa6",
+    "storage_bucket": "bubble-splash-36aa6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:408128401118:android:5fa7ebaff5b9e213661c4f",
+        "android_client_info": {
+          "package_name": "com.finatech.bubblesplash"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "408128401118-guj6u81lq8qmitrb05psp6u92l3mbvc3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.finatech.bubblesplash",
+            "certificate_hash": "953ea5d5f8888281b57c39e6897b4484c7102422"
+          }
+        },
+        {
+          "client_id": "408128401118-7ak3qjc23eabejub96gcijv75juvenvl.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBZjOcoOA8LdALM62BkyLet980Sv6mEm-s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "408128401118-7ak3qjc23eabejub96gcijv75juvenvl.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

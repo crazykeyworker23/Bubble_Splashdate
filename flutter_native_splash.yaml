@@ -1,0 +1,24 @@
+# flutter_native_splash configuration file
+# See: https://pub.dev/packages/flutter_native_splash
+
+flutter_native_splash:
+  # Splash simple: fondo sólido + logo centrado
+  fullscreen: true
+  android: true
+  ios: true
+  web: false
+
+  color: "#3CB4B4"
+  color_dark: "#3CB4B4"
+
+  image: assets/logob_splash.png
+  image_dark: assets/logob_splash.png
+
+  android_gravity: center
+  ios_content_mode: center
+
+  # Android 12+ usa color + icono
+  android_12:
+    color: "#3CB4B4"
+    icon_background_color: "#3CB4B4"
+    image: assets/logob_splash_android12.png
