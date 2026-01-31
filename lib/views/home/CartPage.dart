@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
 import 'ReceiptPage.dart';
+import 'pagos_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bubblesplash/services/auth_service.dart';
 import 'package:bubblesplash/constants/backend_config.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-// Asumiendo que ReceiptPage está definida o importada aquí
-// (Si está en otro archivo, asegúrate de importarla: import 'receipt_page.dart';)
-
 class CartPage extends StatefulWidget {
   final List<Map<String, dynamic>> initialPedidos;
-  const CartPage({super.key, required this.initialPedidos});
+  final double descuento;
+  const CartPage({
+    super.key,
+    required this.initialPedidos,
+    this.descuento = 0.0,
+  });
 
   @override
   State<CartPage> createState() => _CartPageState();
@@ -20,6 +23,122 @@ class CartPage extends StatefulWidget {
 class _CartPageState extends State<CartPage> {
   late List<Map<String, dynamic>> pedidos;
   String selectedDineOption = 'En el Local';
+  double get _descuento => widget.descuento;
+
+  // =========================
+  // ✅ MODAL PREMIUM (reemplaza SnackBar)
+  // =========================
+  Future<void> _showPremiumModal({
+    required String title,
+    required String message,
+    IconData icon = Icons.info_rounded,
+    Color accent = const Color(0xFF1B6F81),
+    String buttonText = 'Entendido',
+    bool barrierDismissible = true,
+  }) async {
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: false,
+      backgroundColor: Colors.transparent,
+      isDismissible: barrierDismissible,
+      enableDrag: barrierDismissible,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.18),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Handle
+                  Container(
+                    width: 46,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Icon
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: accent.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Icon(icon, size: 34, color: accent),
+                  ),
+                  const SizedBox(height: 14),
+
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: accent,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      height: 1.25,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: accent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        elevation: 0,
+                      ),
+                      onPressed: () => Navigator.pop(ctx),
+                      child: Text(
+                        buttonText,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   int _asInt(dynamic value) {
     if (value is int) return value;
@@ -33,7 +152,7 @@ class _CartPageState extends State<CartPage> {
   }
 
   double _computeUnitTotal(Map<String, dynamic> item) {
-    // Si tenemos desglose, este es el valor “real” a cobrar por unidad.
+    double price;
     if (item.containsKey('basePrice') ||
         item.containsKey('sizeExtra') ||
         item.containsKey('iceExtra') ||
@@ -53,53 +172,15 @@ class _CartPageState extends State<CartPage> {
         }
       }
 
-      return base + sizeExtra + iceExtra + toppingsTotal;
+      price = base + sizeExtra + iceExtra + toppingsTotal;
+    } else {
+      price = _asDouble(item['price']);
     }
-
-    // Fallback a lo que se guardó históricamente.
-    return _asDouble(item['price']);
-  }
-
-  void _repriceItemsToMatchTotal(
-    List<Map<String, dynamic>> items,
-    double targetTotal,
-  ) {
-    if (items.isEmpty) return;
-
-    final int targetCents = (targetTotal * 100).round();
-    if (targetCents <= 0) return;
-
-    final originalLineCents = <int>[];
-    int sumOriginalCents = 0;
-
-    for (final item in items) {
-      final int quantity = _asInt(item['quantity'] ?? 1);
-      final int safeQty = quantity <= 0 ? 1 : quantity;
-      final double unit = _asDouble(item['price']);
-      final int cents = (unit * safeQty * 100).round();
-      originalLineCents.add(cents);
-      sumOriginalCents += cents;
+    // Aplica descuento si corresponde
+    if (_descuento > 0) {
+      price = price * (1 - _descuento);
     }
-
-    if (sumOriginalCents <= 0) return;
-
-    int allocated = 0;
-    for (int i = 0; i < items.length; i++) {
-      final int quantity = _asInt(items[i]['quantity'] ?? 1);
-      final int safeQty = quantity <= 0 ? 1 : quantity;
-
-      int newLineCents;
-      if (i == items.length - 1) {
-        newLineCents = targetCents - allocated;
-      } else {
-        newLineCents = ((originalLineCents[i] * targetCents) / sumOriginalCents)
-            .round();
-        allocated += newLineCents;
-      }
-
-      final double newUnit = (newLineCents / safeQty) / 100.0;
-      items[i]['price'] = newUnit;
-    }
+    return price;
   }
 
   List<int> _extractToppingsIds(Map<String, dynamic> item) {
@@ -113,7 +194,6 @@ class _CartPageState extends State<CartPage> {
 
     final dynamic rawToppings = item['toppings'];
     if (rawToppings is List) {
-      // Puede venir como List<String> o List<Map>{id,name,price}
       final ids = <int>[];
       for (final t in rawToppings) {
         if (t is Map) {
@@ -163,57 +243,44 @@ class _CartPageState extends State<CartPage> {
   }
 
   void _clearAll() {
-    setState(() {
-      pedidos.clear();
-    });
-    // Si se vacía el carrito, volvemos al menú con la lista actualizada
-    if (mounted) {
-      Navigator.pop(context, pedidos);
-    }
+    setState(() => pedidos.clear());
+    if (mounted) Navigator.pop(context, pedidos);
   }
 
   void _removeItem(int index) {
-    setState(() {
-      pedidos.removeAt(index);
-    });
-
-    // Si ya no quedan productos, volvemos al menú
-    if (pedidos.isEmpty && mounted) {
-      Navigator.pop(context, pedidos);
-    }
+    setState(() => pedidos.removeAt(index));
+    if (pedidos.isEmpty && mounted) Navigator.pop(context, pedidos);
   }
 
   void _increaseQuantity(int index) {
-    setState(() {
-      pedidos[index]['quantity'] += 1;
-    });
+    setState(
+      () => pedidos[index]['quantity'] = _asInt(pedidos[index]['quantity']) + 1,
+    );
   }
 
   void _decreaseQuantity(int index) {
     setState(() {
-      if (pedidos[index]['quantity'] > 1) {
-        pedidos[index]['quantity'] -= 1;
+      final q = _asInt(pedidos[index]['quantity']);
+      if (q > 1) {
+        pedidos[index]['quantity'] = q - 1;
       } else {
         _removeItem(index);
       }
     });
   }
 
-  /// Verifica en el backend si la billetera tiene saldo suficiente
-  /// para cubrir el total actual del carrito.
-  /// Si no alcanza, muestra un mensaje y devuelve false.
   Future<bool> _verificarSaldoSuficiente() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final rawToken = prefs.getString('access_token');
 
       if (rawToken == null || rawToken.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
+        await _showPremiumModal(
+          title: 'Sesión requerida',
+          message:
               'No hay access token. Inicia sesión nuevamente para usar tu billetera.',
-            ),
-          ),
+          icon: Icons.lock_rounded,
+          accent: const Color(0xFF1B6F81),
         );
         return false;
       }
@@ -230,7 +297,6 @@ class _CartPageState extends State<CartPage> {
         },
       );
 
-      // Si el token expiró (401), intentamos refrescar y reintentar una vez
       if (response.statusCode == 401 && await AuthService.refreshToken()) {
         final newToken = prefs.getString('access_token')?.trim();
         if (newToken != null && newToken.isNotEmpty) {
@@ -246,24 +312,26 @@ class _CartPageState extends State<CartPage> {
       }
 
       if (response.statusCode == 401) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
+        await _showPremiumModal(
+          title: 'Sesión expirada',
+          message:
               'Tu sesión ha expirado. Inicia sesión nuevamente para usar tu billetera.',
-            ),
-          ),
+          icon: Icons.schedule_rounded,
+          accent: const Color(0xFFE80A5D),
         );
         return false;
       }
 
       if (response.statusCode != 200) {
         debugPrint(
-          'Error al consultar saldo de billetera: ${response.statusCode} ${response.body}',
+          'Error al consultar saldo: ${response.statusCode} ${response.body}',
         );
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se pudo verificar el saldo de tu billetera.'),
-          ),
+        await _showPremiumModal(
+          title: 'No se pudo verificar',
+          message:
+              'No se pudo verificar el saldo de tu billetera. Intenta nuevamente.',
+          icon: Icons.wifi_off_rounded,
+          accent: const Color(0xFFE80A5D),
         );
         return false;
       }
@@ -274,43 +342,142 @@ class _CartPageState extends State<CartPage> {
       final double saldoBackend = double.tryParse(balanceStr) ?? 0.0;
 
       if (saldoBackend + 1e-6 < _totalPrice) {
-        // No alcanza el saldo para cubrir el total
         await showDialog<void>(
           context: context,
+          barrierDismissible: false,
           builder: (context) {
-            return AlertDialog(
-              title: const Text('Saldo insuficiente'),
-              content: Text(
-                'Tu saldo disponible es S/. ${saldoBackend.toStringAsFixed(2)} y el total de tu pedido es S/. ${_totalPrice.toStringAsFixed(2)}. Por favor, recarga tu billetera para continuar.',
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Aceptar'),
+              backgroundColor: Colors.white,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 28,
                 ),
-              ],
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      size: 60,
+                      color: Color(0xFFFFA726),
+                    ),
+                    const SizedBox(height: 16),
+
+                    const Text(
+                      'Saldo insuficiente',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1B6F81),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    Text(
+                      'Tu saldo disponible es S/. ${saldoBackend.toStringAsFixed(2)} '
+                      'y el total de tu pedido es S/. ${_totalPrice.toStringAsFixed(2)}.',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: Colors.black87,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 10),
+
+                    const Text(
+                      'Recarga tu billetera para continuar con el pago.',
+                      style: TextStyle(fontSize: 15, color: Colors.black54),
+                      textAlign: TextAlign.center,
+                    ),
+
+                    const SizedBox(height: 22),
+
+                    // 🔹 BOTONES
+                    Row(
+                      children: [
+                        // 👉 Ir a billetera
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF1B6F81),
+                              side: const BorderSide(
+                                color: Color(0xFF1B6F81),
+                                width: 2,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            onPressed: () {
+                              Navigator.of(context).pop();
+
+                              // 👉 NAVEGACIÓN DIRECTA A PagosPage
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const PagosPage(),
+                                ),
+                              );
+                            },
+                            child: const Text(
+                              'Ir a mi billetera',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(width: 12),
+
+                        // 👉 Entendido
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1B6F81),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text(
+                              'Entendido',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             );
           },
         );
+
         return false;
       }
 
       return true;
     } catch (e) {
-      debugPrint('Excepción al verificar saldo de billetera: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Ocurrió un error al verificar el saldo de tu billetera.',
-          ),
-        ),
+      debugPrint('Excepción al verificar saldo: $e');
+      await _showPremiumModal(
+        title: 'Error',
+        message: 'Ocurrió un error al verificar el saldo de tu billetera.',
+        icon: Icons.error_rounded,
+        accent: const Color(0xFFE53935),
       );
       return false;
     }
   }
 
-  /// Lee el saldo actual desde el backend (wallet/me).
-  /// Se usa para diagnóstico: saber cuánto descontó el servidor.
   Future<double?> _getSaldoBackend() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -342,7 +509,9 @@ class _CartPageState extends State<CartPage> {
       }
 
       if (response.statusCode != 200) {
-        debugPrint('No se pudo leer saldo wallet/me: ${response.statusCode} ${response.body}');
+        debugPrint(
+          'No se pudo leer saldo: ${response.statusCode} ${response.body}',
+        );
         return null;
       }
 
@@ -351,32 +520,28 @@ class _CartPageState extends State<CartPage> {
       final String balanceStr = (data['wal_de_balance'] ?? '0').toString();
       return double.tryParse(balanceStr) ?? 0.0;
     } catch (e) {
-      debugPrint('Excepción al leer saldo wallet/me: $e');
+      debugPrint('Excepción al leer saldo: $e');
       return null;
     }
   }
 
-  /// Construye y envía el pedido al backend.
-  /// Devuelve el JSON de respuesta si todo va bien, o null si falla.
   Future<Map<String, dynamic>?> _crearPedidoBackend() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final rawToken = prefs.getString('access_token');
 
       if (rawToken == null || rawToken.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'No hay access token. Inicia sesión nuevamente para pagar.',
-            ),
-          ),
+        await _showPremiumModal(
+          title: 'Sesión requerida',
+          message: 'No hay access token. Inicia sesión nuevamente para pagar.',
+          icon: Icons.lock_rounded,
+          accent: const Color(0xFF1B6F81),
         );
         return null;
       }
 
       final token = rawToken.trim();
 
-      // Mapear opción de consumo a código esperado por el backend
       String deliveryCode;
       if (selectedDineOption.toLowerCase().contains('llevar')) {
         deliveryCode = 'PARA_LLEVAR';
@@ -385,38 +550,35 @@ class _CartPageState extends State<CartPage> {
       }
 
       final List<Map<String, dynamic>> itemsPayload = [];
-
       for (final item in pedidos) {
         final dynamic rawProductId = item.containsKey('productId')
             ? item['productId']
             : item['id'];
         final int proIntId = _asInt(rawProductId);
-
         if (proIntId <= 0) continue;
 
         final int quantity = _asInt(item['quantity'] ?? 1);
         final String size = (item['size'] ?? '').toString().toUpperCase();
         final List<int> toppingsIds = _extractToppingsIds(item);
-
         final String notes = (item['notes'] ?? '').toString();
+        final double priceWithDiscount = _computeUnitTotal(item);
 
         itemsPayload.add({
           'pro_int_id': proIntId,
           'pdi_txt_size': size,
           'pdi_int_quantity': quantity,
           'toppings': toppingsIds,
-          // Por ahora no hay campo de notas en la UI
           'pdi_txt_notes': notes,
+          'pdi_num_price': priceWithDiscount,
         });
       }
 
       if (itemsPayload.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'No se pudo crear el pedido: faltan datos de productos.',
-            ),
-          ),
+        await _showPremiumModal(
+          title: 'Carrito inválido',
+          message: 'No se pudo crear el pedido: faltan datos de productos.',
+          icon: Icons.shopping_cart_checkout_rounded,
+          accent: const Color(0xFFE80A5D),
         );
         return null;
       }
@@ -438,7 +600,6 @@ class _CartPageState extends State<CartPage> {
         body: body,
       );
 
-      // Si el token expiró (401), intentamos refrescar y reintentar una vez
       if (response.statusCode == 401 && await AuthService.refreshToken()) {
         final newToken = prefs.getString('access_token')?.trim();
         if (newToken != null && newToken.isNotEmpty) {
@@ -455,49 +616,53 @@ class _CartPageState extends State<CartPage> {
       }
 
       if (response.statusCode == 401) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Tu sesión ha expirado. Por favor, inicia sesión nuevamente para pagar.',
-            ),
-          ),
+        await _showPremiumModal(
+          title: 'Sesión expirada',
+          message:
+              'Tu sesión ha expirado. Inicia sesión nuevamente para pagar.',
+          icon: Icons.schedule_rounded,
+          accent: const Color(0xFFE80A5D),
         );
         return null;
       }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final Map<String, dynamic> data =
-            jsonDecode(response.body) as Map<String, dynamic>;
-        return data;
+        return jsonDecode(response.body) as Map<String, dynamic>;
       } else {
         debugPrint(
           'Error al crear pedido: ${response.statusCode} ${response.body}',
         );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'No se pudo crear el pedido (${response.statusCode}): ${response.body}',
-            ),
-          ),
+        await _showPremiumModal(
+          title: 'No se pudo procesar',
+          message:
+              'No se pudo crear el pedido (${response.statusCode}). Intenta nuevamente.',
+          icon: Icons.receipt_long_rounded,
+          accent: const Color(0xFFE53935),
         );
         return null;
       }
     } catch (e) {
       debugPrint('Excepción al crear pedido: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Error inesperado al procesar el pedido.'),
-        ),
+      await _showPremiumModal(
+        title: 'Error',
+        message: 'Error inesperado al procesar el pedido.',
+        icon: Icons.error_rounded,
+        accent: const Color(0xFFE53935),
       );
       return null;
     }
   }
 
   Widget _buildCartItem(Map<String, dynamic> item, int index) {
-    final String name = item['name'] ?? 'Producto Desconocido';
+    final String name = (item['name'] ?? 'Producto Desconocido').toString();
     final double price = _computeUnitTotal(item);
-    final int quantity = item['quantity'] ?? 1;
-    final String imagePath = 'assets/bebidas.png';
+    final int quantity = _asInt(item['quantity'] ?? 1);
+
+    final String? imagePath =
+        item['image'] ?? item['imagePath'] ?? item['imageUrl'];
+    final bool isNetworkImage =
+        imagePath != null &&
+        (imagePath.startsWith('http') || imagePath.startsWith('https'));
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -506,12 +671,38 @@ class _CartPageState extends State<CartPage> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: Image.asset(
-              imagePath,
-              height: 85,
-              width: 85,
-              fit: BoxFit.cover,
-            ),
+            child: imagePath != null
+                ? (isNetworkImage
+                      ? Image.network(
+                          imagePath,
+                          height: 85,
+                          width: 85,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Image.asset(
+                            'assets/bebidas.png',
+                            height: 85,
+                            width: 85,
+                            fit: BoxFit.cover,
+                          ),
+                        )
+                      : Image.asset(
+                          imagePath,
+                          height: 85,
+                          width: 85,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Image.asset(
+                            'assets/bebidas.png',
+                            height: 85,
+                            width: 85,
+                            fit: BoxFit.cover,
+                          ),
+                        ))
+                : Image.asset(
+                    'assets/bebidas.png',
+                    height: 85,
+                    width: 85,
+                    fit: BoxFit.cover,
+                  ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -544,11 +735,8 @@ class _CartPageState extends State<CartPage> {
               ],
             ),
           ),
-
-          // 🔹 Sección de cantidad y eliminar
           Row(
             children: [
-              // Botón eliminar
               GestureDetector(
                 onTap: () => _removeItem(index),
                 child: Container(
@@ -565,8 +753,6 @@ class _CartPageState extends State<CartPage> {
                 ),
               ),
               const SizedBox(width: 8),
-
-              // Botón disminuir cantidad
               GestureDetector(
                 onTap: () => _decreaseQuantity(index),
                 child: Container(
@@ -583,8 +769,6 @@ class _CartPageState extends State<CartPage> {
                 ),
               ),
               const SizedBox(width: 8),
-
-              // Cantidad
               Text(
                 '$quantity',
                 style: const TextStyle(
@@ -594,8 +778,6 @@ class _CartPageState extends State<CartPage> {
                 ),
               ),
               const SizedBox(width: 8),
-
-              // Botón aumentar cantidad
               GestureDetector(
                 onTap: () => _increaseQuantity(index),
                 child: Container(
@@ -626,7 +808,6 @@ class _CartPageState extends State<CartPage> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-          // 1. CORRECCIÓN: Devolver la lista actualizada de pedidos al ir atrás
           onPressed: () => Navigator.pop(context, pedidos),
         ),
         title: const Text(
@@ -737,75 +918,150 @@ class _CartPageState extends State<CartPage> {
                   child: ElevatedButton(
                     onPressed: totalItems > 0
                         ? () async {
-                            // Confirmación: mostrar el monto real del carrito
                             final confirm = await showDialog<bool>(
                               context: context,
-                              builder: (c) => AlertDialog(
-                                title: const Text('Confirmar pago'),
-                                content: Text(
-                                  '¿Deseas pagar S/. ${_totalPrice.toStringAsFixed(2)}?',
+                              barrierDismissible: false,
+                              builder: (c) => Dialog(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20),
                                 ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(c, false),
-                                    child: const Text('Cancelar'),
+                                backgroundColor: Colors.white,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 24,
+                                    vertical: 28,
                                   ),
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(c, true),
-                                    child: const Text('Pagar'),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.payments_rounded,
+                                        size: 60,
+                                        color: Color(0xFF42A5F5),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const Text(
+                                        'Confirmar pago',
+                                        style: TextStyle(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF1B6F81),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        '¿Deseas pagar S/. ${_totalPrice.toStringAsFixed(2)}?',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          color: Colors.black87,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 24),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: OutlinedButton(
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: const Color(
+                                                  0xFF1B6F81,
+                                                ),
+                                                side: const BorderSide(
+                                                  color: Color(0xFF1B6F81),
+                                                  width: 2,
+                                                ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 14,
+                                                    ),
+                                              ),
+                                              onPressed: () =>
+                                                  Navigator.pop(c, false),
+                                              child: const Text(
+                                                'Cancelar',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: ElevatedButton(
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(
+                                                  0xFF42A5F5,
+                                                ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 14,
+                                                    ),
+                                              ),
+                                              onPressed: () =>
+                                                  Navigator.pop(c, true),
+                                              child: const Text(
+                                                'Pagar',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             );
                             if (confirm != true) return;
 
-                            // Diagnóstico: saldo antes de crear el pedido
-                            final double? saldoAntes =
-                              await _getSaldoBackend();
+                            final double? saldoAntes = await _getSaldoBackend();
 
-                            // 1) Verificar saldo suficiente en billetera
                             final tieneSaldo =
                                 await _verificarSaldoSuficiente();
                             if (!tieneSaldo) return;
 
-                            // 2) Crear pedido en backend
                             final pedidoData = await _crearPedidoBackend();
                             if (pedidoData == null) return;
 
-                            // Diagnóstico: saldo después de crear el pedido
                             final double? saldoDespues =
                                 await _getSaldoBackend();
                             if (saldoAntes != null && saldoDespues != null) {
                               final double descontado =
                                   (saldoAntes - saldoDespues);
                               debugPrint(
-                                'DIAGNÓSTICO COBRO: appTotal=S/. ${_totalPrice.toStringAsFixed(2)} | serverDelta=S/. ${descontado.toStringAsFixed(2)} | saldoAntes=S/. ${saldoAntes.toStringAsFixed(2)} | saldoDespues=S/. ${saldoDespues.toStringAsFixed(2)}',
+                                'DIAGNÓSTICO COBRO: appTotal=S/. ${_totalPrice.toStringAsFixed(2)} | serverDelta=S/. ${descontado.toStringAsFixed(2)}',
                               );
 
-                              // Si el servidor descuenta distinto, lo mostramos.
                               if (mounted &&
                                   (descontado - _totalPrice).abs() > 0.01) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'El servidor descontó S/. ${descontado.toStringAsFixed(2)} (tu carrito: S/. ${_totalPrice.toStringAsFixed(2)}).',
-                                    ),
-                                  ),
+                                await _showPremiumModal(
+                                  title: 'Detalle de cobro',
+                                  message:
+                                      'Se descontó S/. ${descontado.toStringAsFixed(2)} (tu carrito: S/. ${_totalPrice.toStringAsFixed(2)}).',
+                                  icon: Icons.receipt_long_rounded,
+                                  accent: const Color(0xFF42A5F5),
                                 );
                               }
                             }
 
-                            // Copia para el recibo antes de limpiar el carrito
                             final List<Map<String, dynamic>> finalPedidosCopy =
                                 pedidos
                                     .map((e) => Map<String, dynamic>.from(e))
                                     .toList();
 
-                            // Requisito: cobrar sin IGV. Usar el total real calculado por la app
-                            // (precio base + extras) y NO el total del backend.
                             final double localSubtotal = _totalPrice;
 
-                            // Fecha/hora desde el backend si existe
                             String? backendDate;
                             String? backendTime;
                             final String ts =
@@ -824,14 +1080,11 @@ class _CartPageState extends State<CartPage> {
                             final String orderNumber =
                                 (pedidoData['ped_txt_number'] ?? '').toString();
 
-                            // Limpiar carrito persistido al completar el pago
                             final prefs = await SharedPreferences.getInstance();
                             await prefs.remove('cart_pedidos');
 
                             if (mounted) {
-                              setState(() {
-                                pedidos.clear();
-                              });
+                              setState(() => pedidos.clear());
                             }
 
                             Navigator.pushReplacement(
@@ -883,11 +1136,7 @@ class _CartPageState extends State<CartPage> {
     final bool isSelected = selectedDineOption == text;
     return Expanded(
       child: GestureDetector(
-        onTap: () {
-          setState(() {
-            selectedDineOption = text;
-          });
-        },
+        onTap: () => setState(() => selectedDineOption = text),
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 4),
           padding: const EdgeInsets.symmetric(vertical: 12),

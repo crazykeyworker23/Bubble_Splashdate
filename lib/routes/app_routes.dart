@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../views/login/login_page.dart';
 import '../views/home/inicio_page.dart';
 import '../views/product_detail/product_detail_page.dart';
-import '../views/cart/cart_page.dart';
 import '../views/profile/profile_page.dart';
 
 class AppRoutes {
@@ -18,7 +17,6 @@ class AppRoutes {
     login: (context) => const LoginPage(),
     home: (context) => const InicioPage(),
     productDetail: (context) => const ProductDetailPage(),
-    cart: (context) => const CartPage(),
     profile: (context) => const ProfilePage(),
   };
 }

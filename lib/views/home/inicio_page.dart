@@ -1,12 +1,32 @@
+// ignore_for_file: unused_import, prefer_const_constructors
+
+import 'dart:async';
 import 'dart:convert';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+
 import 'package:bubblesplash/widgets/custom_appbar.dart';
 import 'package:bubblesplash/services/session_manager.dart';
 import 'package:bubblesplash/services/auth_service.dart';
 import 'package:bubblesplash/constants/backend_config.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+
+import 'CartPage.dart';
+
+/// ✅ Cache manager más agresivo (mejor carga + menos re-descargas)
+final CacheManager kBannerCacheManager = CacheManager(
+  Config(
+    'bubblesplash_banner_cache_v1',
+    stalePeriod: const Duration(days: 7),
+    maxNrOfCacheObjects: 250,
+    repo: JsonCacheInfoRepository(databaseName: 'bubblesplash_banner_cache_v1'),
+    fileService: HttpFileService(),
+  ),
+);
 
 class _HomeBanner {
   final int id;
@@ -36,23 +56,8 @@ class _HomeBanner {
   }
 }
 
-/// Mock UI (luego lo conectas a tu API real)
-class _MiniProduct {
-  final String name;
-  final String imageUrl; // puede ser url o vacío
-  final double price;
-  final String tag;
-
-  const _MiniProduct({
-    required this.name,
-    required this.imageUrl,
-    required this.price,
-    required this.tag,
-  });
-}
-
 class InicioPage extends StatefulWidget {
-  final void Function(int)? onTabChange;
+  final void Function(int)? onTabChange; // opcional si usas bottom tabs
   const InicioPage({super.key, this.onTabChange});
 
   @override
@@ -65,43 +70,192 @@ class _InicioPageState extends State<InicioPage> {
   String? _homeError;
   List<_HomeBanner> _banners = [];
 
-  // Mock data (puedes reemplazar por data real de tu backend)
-  final List<_MiniProduct> _recommended = const [
-    _MiniProduct(name: "Taro Milk Tea", imageUrl: "", price: 12.90, tag: "Top"),
-    _MiniProduct(name: "Brown Sugar", imageUrl: "", price: 13.50, tag: "Nuevo"),
-    _MiniProduct(name: "Matcha Latte", imageUrl: "", price: 14.00, tag: "Premium"),
-    _MiniProduct(name: "Fruit Tea Mango", imageUrl: "", price: 11.90, tag: "Fresh"),
-  ];
+  int _cartCount = 0;
 
-  final List<String> _popularCategories = const [
-    "Bubble Tea",
-    "Fruit Tea",
-    "Frappé",
-    "Coffee",
-    "Toppings",
-    "Ofertas",
-  ];
+  // =============================
+  // ✅ FAB DRAGGABLE + PERSISTENTE
+  // =============================
+  static const String _fabXFracKey = 'inicio_cart_fab_x_frac';
+  static const String _fabYFracKey = 'inicio_cart_fab_y_frac';
+
+  double? _fabXFrac;
+  double? _fabYFrac;
+  Offset? _fabOffset;
+
+  Offset? _fabDragStartGlobal;
+  Offset? _fabDragStartOffset;
+
+  bool _isDraggingFab = false;
+  bool _didDragFab = false;
 
   @override
   void initState() {
     super.initState();
     _loadUserName();
     _loadHomeData();
+    _loadCartCount();
+    _loadFabPosition();
   }
 
+  // =============================
+  // CARRITO (prefs cart_pedidos)
+  // =============================
+  Future<List<Map<String, dynamic>>> _loadCartFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList('cart_pedidos') ?? <String>[];
+
+    final items = <Map<String, dynamic>>[];
+    for (final s in raw) {
+      try {
+        final decoded = jsonDecode(s);
+        if (decoded is Map<String, dynamic>) {
+          decoded['quantity'] = (decoded['quantity'] ?? decoded['qty'] ?? 1);
+          items.add(decoded);
+        }
+      } catch (_) {}
+    }
+    return items;
+  }
+
+  Future<void> _saveCartToPrefs(List<Map<String, dynamic>> pedidos) async {
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = pedidos.map((e) => jsonEncode(e)).toList();
+    await prefs.setStringList('cart_pedidos', encoded);
+  }
+
+  Future<void> _loadCartCount() async {
+    final pedidos = await _loadCartFromPrefs();
+    if (!mounted) return;
+
+    final count = pedidos.fold<int>(0, (sum, e) {
+      final q = int.tryParse((e['quantity'] ?? 1).toString()) ?? 1;
+      return sum + (q <= 0 ? 1 : q);
+    });
+
+    setState(() => _cartCount = count);
+  }
+
+  Future<void> _openCart() async {
+    final pedidos = await _loadCartFromPrefs();
+
+    final updated = await Navigator.push<List<Map<String, dynamic>>>(
+      context,
+      MaterialPageRoute(builder: (_) => CartPage(initialPedidos: pedidos)),
+    );
+
+    if (updated != null) {
+      await _saveCartToPrefs(updated);
+    }
+    await _loadCartCount();
+  }
+
+  // =============================
+  // ✅ FAB POSICIÓN (load/save)
+  // =============================
+  Future<void> _loadFabPosition() async {
+    final prefs = await SharedPreferences.getInstance();
+    final x = prefs.getDouble(_fabXFracKey);
+    final y = prefs.getDouble(_fabYFracKey);
+    if (!mounted) return;
+    setState(() {
+      _fabXFrac = x;
+      _fabYFrac = y;
+      _fabOffset = null;
+    });
+  }
+
+  Future<void> _saveFabPosition({
+    required double xFrac,
+    required double yFrac,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_fabXFracKey, xFrac);
+    await prefs.setDouble(_fabYFracKey, yFrac);
+  }
+
+  void _snapFabToEdge({
+    required double minX,
+    required double maxX,
+    required double minY,
+    required double maxY,
+  }) {
+    final current = _fabOffset;
+    if (current == null) return;
+
+    final snappedX = (current.dx - minX) <= (maxX - current.dx) ? minX : maxX;
+    final snappedY = current.dy.clamp(minY, maxY);
+
+    final xRange = (maxX - minX).abs() < 0.001 ? 1 : (maxX - minX);
+    final yRange = (maxY - minY).abs() < 0.001 ? 1 : (maxY - minY);
+    final xFrac = ((snappedX - minX) / xRange).clamp(0.0, 1.0);
+    final yFrac = ((snappedY - minY) / yRange).clamp(0.0, 1.0);
+
+    setState(() {
+      _fabOffset = Offset(snappedX, snappedY);
+      _fabXFrac = xFrac;
+      _fabYFrac = yFrac;
+    });
+
+    _saveFabPosition(xFrac: xFrac, yFrac: yFrac);
+  }
+
+  Widget _buildCartFab({required int count}) {
+    return FloatingActionButton(
+      heroTag: 'inicio_cart_fab',
+      backgroundColor: const Color.fromARGB(255, 27, 111, 129),
+      onPressed: () {
+        if (_isDraggingFab || _didDragFab) return;
+        _openCart();
+      },
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Icon(Icons.shopping_cart, color: Colors.white),
+          if (count > 0)
+            Positioned(
+              right: -6,
+              top: -6,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(
+                  color: Colors.redAccent,
+                  shape: BoxShape.circle,
+                ),
+                constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                child: Center(
+                  child: Text(
+                    '$count',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // =============================
+  // USER
+  // =============================
   Future<void> _loadUserName() async {
     final fullName = await SessionManager.getFullName();
     if (!mounted) return;
 
     setState(() {
-      if (fullName != null && fullName.trim().isNotEmpty) {
-        _displayName = fullName.trim();
-      } else {
-        _displayName = 'Usuario';
-      }
+      _displayName = (fullName != null && fullName.trim().isNotEmpty)
+          ? fullName.trim()
+          : 'Usuario';
     });
   }
 
+  // =============================
+  // HOME DATA
+  // =============================
   Future<void> _loadHomeData() async {
     setState(() {
       _isLoadingHome = true;
@@ -115,7 +269,6 @@ class _InicioPageState extends State<InicioPage> {
       if (rawToken == null || rawToken.trim().isEmpty) {
         if (!mounted) return;
         setState(() {
-          _isLoadingHome = false;
           _homeError = 'No hay access token. Inicia sesión nuevamente.';
         });
         return;
@@ -134,8 +287,7 @@ class _InicioPageState extends State<InicioPage> {
       );
 
       if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final refreshedPrefs = await SharedPreferences.getInstance();
-        final newToken = refreshedPrefs.getString('access_token')?.trim();
+        final newToken = prefs.getString('access_token')?.trim();
         if (newToken != null && newToken.isNotEmpty) {
           response = await http.get(
             uri,
@@ -163,226 +315,272 @@ class _InicioPageState extends State<InicioPage> {
             .where((b) => b.status.toUpperCase() == 'ACTIVO')
             .toList();
 
-        setState(() {
-          _banners = banners;
-          _isLoadingHome = false;
-        });
+        setState(() => _banners = banners);
+
+        // ✅ Precache + prefetch (carga más rápida)
+        for (final b in banners) {
+          final u = b.imageUrl.trim();
+          if (u.startsWith('http')) {
+            precacheImage(CachedNetworkImageProvider(u), context);
+            unawaited(kBannerCacheManager.downloadFile(u));
+          }
+        }
       } else if (response.statusCode == 401) {
-        setState(() {
-          _isLoadingHome = false;
-          _homeError =
-              'Tu sesión ha expirado. Por favor, inicia sesión nuevamente.';
-        });
+        setState(() => _homeError = 'Sesión expirada. Inicia sesión nuevamente.');
       } else {
-        setState(() {
-          _isLoadingHome = false;
-          _homeError =
-              'Error al cargar información de inicio (${response.statusCode}).';
-        });
+        setState(() => _homeError =
+            'Error cargando home (${response.statusCode}). Intenta nuevamente.');
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _isLoadingHome = false;
-        _homeError = 'Error al cargar información de inicio: $e';
-      });
+      setState(() => _homeError = 'Ocurrió un error cargando home: $e');
+    } finally {
+      if (!mounted) return;
+      setState(() => _isLoadingHome = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    const bg = Color(0xFFF5F5F5);
+    const bg = Color(0xFFF6F7FB);
 
     return Scaffold(
       backgroundColor: bg,
       appBar: CustomAppBar(title: 'BUBBLE SPLASH', subtitle: _displayName),
       body: SafeArea(
         bottom: true,
-        child: CustomScrollView(
-          key: const PageStorageKey<String>('inicio_page_scroll'),
-          physics: const BouncingScrollPhysics(),
-          slivers: [
-            const SliverToBoxAdapter(child: SizedBox(height: 14)),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            const double margin = 16;
+            const double fabDiameter = 56;
 
-            if (_homeError != null)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    _homeError!,
-                    style: const TextStyle(
-                      color: Colors.redAccent,
-                      fontSize: 13,
+            final double minX = margin;
+            final double minY = margin;
+            final double maxX = (constraints.maxWidth - fabDiameter - margin)
+                .clamp(minX, 99999);
+            final double maxY = (constraints.maxHeight - fabDiameter - margin)
+                .clamp(minY, 99999);
+
+            double resolvedX;
+            double resolvedY;
+
+            if (_fabOffset != null) {
+              resolvedX = _fabOffset!.dx;
+              resolvedY = _fabOffset!.dy;
+            } else if (_fabXFrac != null && _fabYFrac != null) {
+              final double xRange =
+                  (maxX - minX).abs() < 0.001 ? 0 : (maxX - minX);
+              final double yRange =
+                  (maxY - minY).abs() < 0.001 ? 0 : (maxY - minY);
+              resolvedX = minX + (_fabXFrac!.clamp(0.0, 1.0) * xRange);
+              resolvedY = minY + (_fabYFrac!.clamp(0.0, 1.0) * yRange);
+            } else {
+              resolvedX = maxX;
+              resolvedY = maxY;
+            }
+
+            resolvedX = resolvedX.clamp(minX, maxX);
+            resolvedY = resolvedY.clamp(minY, maxY);
+
+            if (_fabOffset == null) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                setState(() => _fabOffset = Offset(resolvedX, resolvedY));
+              });
+            }
+
+            return Stack(
+              children: [
+                CustomScrollView(
+                  key: const PageStorageKey<String>('inicio_page_scroll'),
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
+                    const SliverToBoxAdapter(child: SizedBox(height: 14)),
+
+                    // ✅ Hero premium (SIN carrito)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: _PremiumHeroWelcome(name: _displayName),
+                      ),
                     ),
-                    textAlign: TextAlign.center,
+
+                    const SliverToBoxAdapter(child: SizedBox(height: 14)),
+
+                    if (_homeError != null)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _ErrorCard(text: _homeError!),
+                        ),
+                      ),
+
+                    const SliverToBoxAdapter(child: SizedBox(height: 18)),
+
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: _SectionHeader(
+                          title: "Destacados",
+                          subtitle: "Promos y novedades premium",
+                          trailing: _SmallTag(
+                            text: _banners.isEmpty
+                                ? "0"
+                                : "${_banners.length} disponibles",
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    if (_isLoadingHome && _banners.isEmpty)
+                      const SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 18),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                      )
+                    else if (_banners.isEmpty && _homeError == null)
+                      const SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.all(18),
+                          child: Center(
+                            child: Text(
+                              'No hay banners disponibles en este momento.',
+                              style: TextStyle(fontSize: 14, color: Colors.grey),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      SliverToBoxAdapter(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 250),
+                          child: _PremiumBannerCarousel(
+                            key: ValueKey(_banners.length),
+                            banners: _banners,
+                            onOpenGallery: (initialIndex) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => _BannerFullScreenPage(
+                                    banners: _banners,
+                                    initialIndex: initialIndex,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+
+                    const SliverToBoxAdapter(child: SizedBox(height: 16)),
+
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: _SectionHeader(
+                          title: "Novedades",
+                          subtitle: "Lo último para ti",
+                        ),
+                      ),
+                    ),
+
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: _banners.isEmpty
+                            ? const _EmptySoftCard(
+                                text:
+                                    "Aún no hay novedades. Vuelve en unos minutos ✨",
+                              )
+                            : Column(
+                                children: _banners.take(3).map((b) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: _PromoListTile(
+                                      banner: b,
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => _BannerFullScreenPage(
+                                              banners: _banners,
+                                              initialIndex: _banners.indexOf(b),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                      ),
+                    ),
+
+                    const SliverToBoxAdapter(child: SizedBox(height: 110)),
+                  ],
+                ),
+
+                // ✅ FAB DRAGGABLE (carrito solo aquí)
+                AnimatedPositioned(
+                  left: resolvedX,
+                  top: resolvedY,
+                  duration: _isDraggingFab
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onPanStart: (details) {
+                      setState(() {
+                        _isDraggingFab = true;
+                        _didDragFab = false;
+                        _fabDragStartGlobal = details.globalPosition;
+                        _fabDragStartOffset = Offset(resolvedX, resolvedY);
+                      });
+                    },
+                    onPanUpdate: (details) {
+                      final startGlobal = _fabDragStartGlobal;
+                      final startOffset = _fabDragStartOffset;
+                      if (startGlobal == null || startOffset == null) return;
+
+                      final delta = details.globalPosition - startGlobal;
+                      if (!_didDragFab && delta.distance > 3) _didDragFab = true;
+
+                      final newX = (startOffset.dx + delta.dx).clamp(minX, maxX);
+                      final newY = (startOffset.dy + delta.dy).clamp(minY, maxY);
+
+                      setState(() => _fabOffset = Offset(newX, newY));
+                    },
+                    onPanEnd: (_) {
+                      setState(() {
+                        _isDraggingFab = false;
+                        _fabDragStartGlobal = null;
+                        _fabDragStartOffset = null;
+                      });
+
+                      _snapFabToEdge(
+                        minX: minX,
+                        maxX: maxX,
+                        minY: minY,
+                        maxY: maxY,
+                      );
+
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) return;
+                        setState(() => _didDragFab = false);
+                      });
+                    },
+                    child: AnimatedScale(
+                      duration: const Duration(milliseconds: 120),
+                      scale: _isDraggingFab ? 1.06 : 1.0,
+                      child: _buildCartFab(count: _cartCount),
+                    ),
                   ),
                 ),
-              ),
-
-            if (_isLoadingHome && _banners.isEmpty)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_banners.isEmpty && _homeError == null)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text(
-                      'No hay banners disponibles en este momento.',
-                      style: TextStyle(fontSize: 14, color: Colors.grey),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-              )
-            else
-              SliverToBoxAdapter(
-                child: _PremiumBannerCarousel(
-                  banners: _banners,
-                  onTap: (banner) {
-                    // Navegar a detalle de promoción
-                    Navigator.pushNamed(
-                      context,
-                      '/promoDetail',
-                      arguments: banner,
-                    );
-                  },
-                ),
-              ),
-
-            // ✅ NUEVO: Accesos rápidos
-            SliverToBoxAdapter(
-              child: _SectionHeader(
-                title: "Accesos rápidos",
-                subtitle: "Lo que más usas, a un toque",
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _QuickActionsRow(
-                  onTapMenu: () {
-                    widget.onTabChange?.call(2); // Menú
-                  },
-                  onTapCart: () {
-                    Navigator.pushNamed(context, '/cart');
-                  },
-                  onTapOrders: () {
-                    widget.onTabChange?.call(1); // Pagos
-                  },
-                  onTapProfile: () {
-                    widget.onTabChange?.call(3); // Beneficios
-                  },
-                ),
-              ),
-            ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 16)),
-
-            // ✅ NUEVO: banner puntos/beneficios
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _RewardsCard(
-                  points: 120,
-                  subtitle: "Canjea toppings y bebidas con tus puntos",
-                  onTap: () {
-                    Navigator.pushNamed(context, '/rewards');
-                  },
-                ),
-              ),
-            ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 16)),
-
-            // ✅ NUEVO: Categorías populares
-            SliverToBoxAdapter(
-              child: _SectionHeader(
-                title: "Categorías populares",
-                subtitle: "Explora por tipo",
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: _popularCategories.map((c) {
-                    return _CategoryChip(
-                      label: c,
-                      onTap: () {
-                        Navigator.pushNamed(
-                          context,
-                          '/category',
-                          arguments: c,
-                        );
-                      },
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 16)),
-
-            // ✅ NUEVO: Recomendados
-            SliverToBoxAdapter(
-              child: _SectionHeader(
-                title: "Recomendados para ti",
-                subtitle: "Los más pedidos esta semana",
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: 190,
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  scrollDirection: Axis.horizontal,
-                  itemBuilder: (context, i) {
-                    final p = _recommended[i];
-                    return _MiniProductCard(
-                      product: p,
-                      onTap: () {
-                        Navigator.pushNamed(
-                          context,
-                          '/product',
-                          arguments: p,
-                        );
-                      },
-                    );
-                  },
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemCount: _recommended.length,
-                ),
-              ),
-            ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 16)),
-
-            // ✅ NUEVO: Últimos pedidos (placeholder)
-            SliverToBoxAdapter(
-              child: _SectionHeader(
-                title: "Tus últimos pedidos",
-                subtitle: "Estado y repetición rápida",
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _LastOrdersCard(
-                  onTapViewAll: () {
-                    Navigator.pushNamed(context, '/orders');
-                  },
-                ),
-              ),
-            ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 22)),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
@@ -390,510 +588,232 @@ class _InicioPageState extends State<InicioPage> {
 }
 
 /// ===============================
-/// UI SECTIONS PREMIUM
+/// PREMIUM UI WIDGETS
 /// ===============================
+class _PremiumHeroWelcome extends StatelessWidget {
+  final String name;
+  const _PremiumHeroWelcome({required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    const c1 = Color(0xFF0F3D4A);
+    const c2 = Color(0xFF128FA0);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [c1, c2],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 18,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.white.withOpacity(0.18)),
+            ),
+            child: const Icon(
+              Icons.local_drink_rounded,
+              color: Colors.white,
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Hola, $name 👋",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  "Hoy es un buen día para tu Bubble Tea",
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.85),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _SectionHeader extends StatelessWidget {
   final String title;
   final String? subtitle;
+  final Widget? trailing;
 
-  const _SectionHeader({required this.title, this.subtitle});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF0F3E47),
-              letterSpacing: 0.3,
-            ),
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              subtitle!,
-              style: const TextStyle(
-                color: Colors.black54,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _QuickActionsRow extends StatelessWidget {
-  final VoidCallback onTapMenu;
-  final VoidCallback onTapCart;
-  final VoidCallback onTapOrders;
-  final VoidCallback onTapProfile;
-
-  const _QuickActionsRow({
-    required this.onTapMenu,
-    required this.onTapCart,
-    required this.onTapOrders,
-    required this.onTapProfile,
-  });
+  const _SectionHeader({required this.title, this.subtitle, this.trailing});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         Expanded(
-          child: _QuickActionTile(
-            icon: Icons.local_drink_rounded,
-            label: "Menú",
-            onTap: onTapMenu,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _QuickActionTile(
-            icon: Icons.shopping_cart_rounded,
-            label: "Carrito",
-            onTap: onTapCart,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _QuickActionTile(
-            icon: Icons.receipt_long_rounded,
-            label: "Pedidos",
-            onTap: onTapOrders,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _QuickActionTile(
-            icon: Icons.person_rounded,
-            label: "Perfil",
-            onTap: onTapProfile,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _QuickActionTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _QuickActionTile({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const primary = Color(0xFF1B6F81);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: onTap,
-      child: Container(
-        height: 86,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: const [
-            BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 6)),
-          ],
-        ),
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: primary.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(icon, color: primary),
-
-            ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.w900,
-                fontSize: 12,
-                color: Color(0xFF0F3E47),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RewardsCard extends StatelessWidget {
-  final int points;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _RewardsCard({
-    required this.points,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const primary = Color(0xFF1B6F81);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(22),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          gradient: LinearGradient(
-            colors: [
-              primary.withOpacity(0.95),
-              const Color(0xFF134B56).withOpacity(0.95),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.20), blurRadius: 16, offset: const Offset(0, 10)),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.16),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withOpacity(0.18)),
-              ),
-              child: const Icon(Icons.stars_rounded, color: Colors.white),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "$points puntos",
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 16,
-                    ),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0F3E47),
+                    letterSpacing: 0.2,
                   ),
+                ),
+                if (subtitle != null) ...[
                   const SizedBox(height: 4),
                   Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.88),
+                    subtitle!,
+                    style: const TextStyle(
+                      color: Colors.black54,
                       fontWeight: FontWeight.w600,
-                      fontSize: 12.5,
+                      fontSize: 13,
                     ),
                   ),
                 ],
-              ),
+              ],
             ),
-            const SizedBox(width: 8),
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.14),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white.withOpacity(0.18)),
-              ),
-              child: const Icon(Icons.arrow_forward_rounded, color: Colors.white),
-            ),
-          ],
+          ),
         ),
-      ),
+        if (trailing != null) trailing!,
+      ],
     );
   }
 }
 
-class _CategoryChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-
-  const _CategoryChip({required this.label, required this.onTap});
+class _SmallTag extends StatelessWidget {
+  final String text;
+  const _SmallTag({required this.text});
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFF1B6F81);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: primary.withOpacity(0.18)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: const BoxDecoration(color: primary, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.w900,
-                color: Color(0xFF0F3E47),
-                fontSize: 12.5,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MiniProductCard extends StatelessWidget {
-  final _MiniProduct product;
-  final VoidCallback onTap;
-
-  const _MiniProductCard({
-    required this.product,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const primary = Color(0xFF1B6F81);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(22),
-      onTap: onTap,
-      child: Container(
-        width: 150,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(22),
-          boxShadow: const [
-            BoxShadow(color: Colors.black12, blurRadius: 12, offset: Offset(0, 8)),
-          ],
-        ),
-        clipBehavior: Clip.hardEdge,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: product.imageUrl.trim().isEmpty
-                  ? Container(
-                      color: const Color(0xFFE9EEF0),
-                      alignment: Alignment.center,
-                      child: const Icon(Icons.local_drink_rounded, size: 44, color: Colors.black38),
-                    )
-                  : Image.network(product.imageUrl, fit: BoxFit.cover),
-            ),
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.transparent, Colors.black.withOpacity(0.70)],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 10,
-              top: 10,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withOpacity(0.18)),
-                ),
-                child: Text(
-                  product.tag,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 11),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 10,
-              right: 10,
-              bottom: 12,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    product.name.toUpperCase(),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12),
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Text(
-                        "S/. ${product.price.toStringAsFixed(2)}",
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
-                      ),
-                      const Spacer(),
-                      Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color: primary.withOpacity(0.90),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.add_rounded, color: Colors.white),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LastOrdersCard extends StatelessWidget {
-  final VoidCallback onTapViewAll;
-
-  const _LastOrdersCard({required this.onTapViewAll});
-
-  @override
-  Widget build(BuildContext context) {
-    const primary = Color(0xFF1B6F81);
-
+    const c2 = Color(0xFF128FA0);
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: c2.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: c2.withOpacity(0.18)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: c2,
+          fontWeight: FontWeight.w900,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorCard extends StatelessWidget {
+  final String text;
+  const _ErrorCard({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.redAccent.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.redAccent.withOpacity(0.20)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, color: Colors.redAccent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: Colors.redAccent,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptySoftCard extends StatelessWidget {
+  final String text;
+  const _EmptySoftCard({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
         boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 12, offset: Offset(0, 8)),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  "Últimos pedidos",
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15,
-                    color: Color(0xFF0F3E47),
-                  ),
-                ),
-              ),
-              InkWell(
-                onTap: onTapViewAll,
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: primary.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: primary.withOpacity(0.18)),
-                  ),
-                  child: const Text(
-                    "Ver todo",
-                    style: TextStyle(color: primary, fontWeight: FontWeight.w900, fontSize: 12),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          _orderRow(
-            title: "Pedido #1201",
-            subtitle: "En preparación • 2 productos",
-            statusColor: Colors.orange,
-          ),
-          const SizedBox(height: 10),
-          _orderRow(
-            title: "Pedido #1188",
-            subtitle: "Listo para recoger • 1 producto",
-            statusColor: Colors.green,
-          ),
-          const SizedBox(height: 10),
-          _orderRow(
-            title: "Pedido #1172",
-            subtitle: "Entregado • 3 productos",
-            statusColor: Colors.blueGrey,
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 12,
+            offset: Offset(0, 8),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _orderRow({
-    required String title,
-    required String subtitle,
-    required Color statusColor,
-  }) {
-    return Row(
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.black54,
+          fontWeight: FontWeight.w700,
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF0F3E47))),
-              const SizedBox(height: 2),
-              Text(subtitle, style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w600, fontSize: 12)),
-            ],
-          ),
-        ),
-        const Icon(Icons.chevron_right_rounded, color: Colors.black45),
-      ],
+      ),
     );
   }
 }
 
 /// ===============================
-/// CARRUSEL PREMIUM (sin paquetes)
+/// CARRUSEL PREMIUM (AUTO + FULLSCREEN)
 /// ===============================
 class _PremiumBannerCarousel extends StatefulWidget {
   final List<_HomeBanner> banners;
-  final void Function(_HomeBanner banner) onTap;
+  final void Function(int initialIndex) onOpenGallery;
 
   const _PremiumBannerCarousel({
+    super.key,
     required this.banners,
-    required this.onTap,
+    required this.onOpenGallery,
   });
 
   @override
@@ -904,17 +824,60 @@ class _PremiumBannerCarouselState extends State<_PremiumBannerCarousel> {
   late final PageController _controller;
   double _page = 0.0;
 
+  int _index = 0;
+  bool _userInteracting = false;
+  Timer? _timer;
+
   @override
   void initState() {
     super.initState();
     _controller = PageController(viewportFraction: 0.88);
+
     _controller.addListener(() {
-      setState(() => _page = _controller.page ?? 0.0);
+      final p = _controller.page ?? 0.0;
+      setState(() => _page = p);
+      _index = p.round().clamp(0, (widget.banners.length - 1).clamp(0, 9999));
+    });
+
+    _startAutoPlay();
+  }
+
+  void _startAutoPlay() {
+    _timer?.cancel();
+    if (widget.banners.length <= 1) return;
+
+    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!mounted) return;
+      if (_userInteracting) return;
+
+      final next = (_index + 1) % widget.banners.length;
+      _controller.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  void _pauseTemporarily() {
+    _userInteracting = true;
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      _userInteracting = false;
     });
   }
 
   @override
+  void didUpdateWidget(covariant _PremiumBannerCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.banners.length != widget.banners.length) {
+      _startAutoPlay();
+    }
+  }
+
+  @override
   void dispose() {
+    _timer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -924,77 +887,45 @@ class _PremiumBannerCarouselState extends State<_PremiumBannerCarousel> {
     const primary = Color(0xFF1B6F81);
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Header elegante
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  "Promociones",
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF0F3E47),
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: primary.withOpacity(0.10),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: primary.withOpacity(0.18)),
-                ),
-                child: Text(
-                  "${widget.banners.length} disponibles",
-                  style: const TextStyle(
-                    color: primary,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                  ),
-                ),
-              )
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
         SizedBox(
-          height: 330,
-          child: PageView.builder(
-            controller: _controller,
-            itemCount: widget.banners.length,
-            itemBuilder: (context, index) {
-              final banner = widget.banners[index];
-
-              final diff = (_page - index).abs();
-              final scale = (1 - (diff * 0.06)).clamp(0.90, 1.0);
-              final opacity = (1 - (diff * 0.25)).clamp(0.55, 1.0);
-
-              return Opacity(
-                opacity: opacity,
-                child: Transform.scale(
-                  scale: scale,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: _PremiumBannerCard(
-                      banner: banner,
-                      onTap: () => widget.onTap(banner),
-                    ),
-                  ),
-                ),
-              );
+          height: 340,
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (n is ScrollStartNotification) _pauseTemporarily();
+              if (n is UserScrollNotification) _pauseTemporarily();
+              return false;
             },
+            child: GestureDetector(
+              onPanDown: (_) => _pauseTemporarily(),
+              child: PageView.builder(
+                controller: _controller,
+                itemCount: widget.banners.length,
+                itemBuilder: (context, index) {
+                  final banner = widget.banners[index];
+                  final diff = (_page - index).abs();
+                  final scale = (1 - (diff * 0.06)).clamp(0.90, 1.0);
+                  final opacity = (1 - (diff * 0.25)).clamp(0.55, 1.0);
+
+                  return Opacity(
+                    opacity: opacity,
+                    child: Transform.scale(
+                      scale: scale,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: _PremiumBannerCard(
+                          banner: banner,
+                          onOpenGallery: () => widget.onOpenGallery(index),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
         ),
-
         const SizedBox(height: 10),
-
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(widget.banners.length, (i) {
@@ -1011,8 +942,6 @@ class _PremiumBannerCarouselState extends State<_PremiumBannerCarousel> {
             );
           }),
         ),
-
-        const SizedBox(height: 8),
       ],
     );
   }
@@ -1020,150 +949,96 @@ class _PremiumBannerCarouselState extends State<_PremiumBannerCarousel> {
 
 class _PremiumBannerCard extends StatelessWidget {
   final _HomeBanner banner;
-  final VoidCallback onTap;
+  final VoidCallback onOpenGallery;
 
   const _PremiumBannerCard({
     required this.banner,
-    required this.onTap,
+    required this.onOpenGallery,
   });
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFF1B6F81);
-
     return GestureDetector(
-      onTap: onTap,
+      onTap: onOpenGallery,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(28),
-        child: Container(
-          decoration: BoxDecoration(
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.18),
-                blurRadius: 18,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              _NetworkImagePremium(url: banner.imageUrl),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _NetworkImagePremium(url: banner.imageUrl, showFull: true),
 
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withOpacity(0.10),
-                        Colors.black.withOpacity(0.35),
-                        Colors.black.withOpacity(0.88),
-                      ],
-                      stops: const [0.0, 0.55, 1.0],
-                    ),
-                  ),
-                ),
-              ),
-
-              Positioned(
-                left: 14,
-                top: 14,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.16),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: Colors.white.withOpacity(0.18)),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.bubble_chart_rounded, color: Colors.white, size: 18),
-                      SizedBox(width: 8),
-                      Text(
-                        "BUBBLE SPLASH",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.5,
-                          fontSize: 12,
-                        ),
-                      ),
+            // overlay suave (amigable)
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.05),
+                      Colors.black.withOpacity(0.22),
+                      Colors.black.withOpacity(0.78),
                     ],
+                    stops: const [0.0, 0.60, 1.0],
                   ),
                 ),
               ),
+            ),
 
-              Positioned(
-                left: 14,
-                right: 14,
-                bottom: 14,
-                child: Container(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: Colors.white.withOpacity(0.18)),
-                  ),
+            // ✅ texto completo con scroll (si es largo)
+            Positioned(
+              left: 14,
+              right: 14,
+              bottom: 14,
+              child: Container(
+                constraints: const BoxConstraints(maxHeight: 150),
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: Colors.white.withOpacity(0.18)),
+                ),
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        banner.title.isNotEmpty ? banner.title : "Promoción especial",
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        banner.title.isNotEmpty
+                            ? banner.title
+                            : "Promoción especial",
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w900,
                           fontSize: 18,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        banner.subtitle.isNotEmpty ? banner.subtitle : "Descubre lo nuevo en Bubble Splash",
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.88),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
                           height: 1.25,
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
+                      Text(
+                        banner.subtitle.isNotEmpty
+                            ? banner.subtitle
+                            : "Descubre lo nuevo en Bubble Splash",
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.92),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       Row(
                         children: [
-                          Expanded(
-                            child: Container(
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: primary.withOpacity(0.90),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              alignment: Alignment.center,
-                              child: const Text(
-                                "Ver detalle",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.3,
-                                ),
-                              ),
+                          Icon(Icons.open_in_full_rounded,
+                              size: 16, color: Colors.white.withOpacity(0.9)),
+                          const SizedBox(width: 6),
+                          Text(
+                            "Toca para ampliar",
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.90),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Container(
-                            height: 40,
-                            width: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.14),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: Colors.white.withOpacity(0.18)),
-                            ),
-                            child: const Icon(Icons.arrow_forward_rounded, color: Colors.white),
                           ),
                         ],
                       ),
@@ -1171,54 +1046,402 @@ class _PremiumBannerCard extends StatelessWidget {
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _NetworkImagePremium extends StatelessWidget {
-  final String url;
-  const _NetworkImagePremium({required this.url});
+/// Lista premium (reutiliza banners como “novedades”)
+class _PromoListTile extends StatelessWidget {
+  final _HomeBanner banner;
+  final VoidCallback onTap;
+  const _PromoListTile({required this.banner, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final placeholder = Container(
-      color: const Color(0xFFE9EEF0),
-      child: const Center(
-        child: SizedBox(
-          width: 22,
-          height: 22,
-          child: CircularProgressIndicator(strokeWidth: 2),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 12,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.horizontal(
+                left: Radius.circular(18),
+              ),
+              child: SizedBox(
+                width: 92,
+                height: 92,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _NetworkImagePremium(
+                      url: banner.imageUrl,
+                      small: true,
+                      showFull: false,
+                    ),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.black.withOpacity(0.06),
+                            Colors.black.withOpacity(0.35),
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      banner.title.isNotEmpty ? banner.title : "Novedad",
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF111827),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      banner.subtitle.isNotEmpty
+                          ? banner.subtitle
+                          : "Toca para ver",
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
+  }
+}
 
+/// ===============================
+/// FULLSCREEN GALLERY (swipe + zoom + TEXTO COMPLETO)
+/// ===============================
+class _BannerFullScreenPage extends StatefulWidget {
+  final List<_HomeBanner> banners;
+  final int initialIndex;
+
+  const _BannerFullScreenPage({required this.banners, this.initialIndex = 0});
+
+  @override
+  State<_BannerFullScreenPage> createState() => _BannerFullScreenPageState();
+}
+
+class _BannerFullScreenPageState extends State<_BannerFullScreenPage> {
+  late final PageController _controller;
+  late int _i;
+
+  @override
+  void initState() {
+    super.initState();
+    _i = widget.initialIndex.clamp(
+      0,
+      (widget.banners.length - 1).clamp(0, 9999),
+    );
+    _controller = PageController(initialPage: _i);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: Text(
+          "${_i + 1}/${widget.banners.length}",
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+      ),
+      body: PageView.builder(
+        controller: _controller,
+        itemCount: widget.banners.length,
+        onPageChanged: (v) => setState(() => _i = v),
+        itemBuilder: (_, index) {
+          final b = widget.banners[index];
+
+          return Stack(
+            children: [
+              // ✅ imagen (zoom)
+              Positioned.fill(
+                child: InteractiveViewer(
+                  minScale: 1.0,
+                  maxScale: 4.0,
+                  child: _NetworkImagePremium(
+                    url: b.imageUrl,
+                    showFull: true,
+                    small: false,
+                  ),
+                ),
+              ),
+
+              // ✅ panel premium con texto completo (scroll)
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: SafeArea(
+                  top: false,
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.42),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: Colors.white.withOpacity(0.12)),
+                    ),
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            b.title.isNotEmpty ? b.title : "Promoción",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 20,
+                              height: 1.25,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            b.subtitle.isNotEmpty
+                                ? b.subtitle
+                                : "Novedades de Bubble Splash",
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.95),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// ===============================
+/// NETWORK IMAGE PREMIUM (cache + base64 + full view)
+/// ===============================
+class _NetworkImagePremium extends StatelessWidget {
+  final String url;
+  final bool small;
+
+  /// true = imagen completa (contain) + fondo blur premium
+  /// false = cover rápido (para thumbnails)
+  final bool showFull;
+
+  const _NetworkImagePremium({
+    required this.url,
+    this.small = false,
+    this.showFull = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final u = url.trim();
+    final placeholder = _SoftShimmerPlaceholder(small: small);
+
     if (u.isEmpty) return placeholder;
 
-    // Si tu backend te manda rutas tipo "/media/banner.jpg", descomenta:
-    // final fixed = u.startsWith('/') ? 'https://services.fintbot.pe$u' : u;
-    final fixed = u;
+    final base64RegExp = RegExp(
+      r'^(data:image\/[^;]+;base64,)?([A-Za-z0-9+\/\r\n]+={0,2})',
+    );
 
-    return Image.network(
-      fixed,
-      fit: BoxFit.cover,
-      loadingBuilder: (context, child, progress) {
-        if (progress == null) return child;
+    ImageProvider provider;
+    if (base64RegExp.hasMatch(u) && u.length > 100) {
+      try {
+        final base64Str = u.contains(',') ? u.split(',').last : u;
+        final bytes = base64Decode(base64Str);
+        provider = MemoryImage(bytes);
+      } catch (_) {
         return placeholder;
-      },
-      errorBuilder: (context, error, stackTrace) {
-        debugPrint('Error cargando banner: $error');
-        debugPrint('URL del banner: $fixed');
+      }
+    } else {
+      provider = CachedNetworkImageProvider(
+        u,
+        cacheManager: kBannerCacheManager,
+      );
+    }
+
+    if (showFull) {
+      // ✅ imagen completa con blur premium detrás
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Image(
+            image: provider,
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.low,
+          ),
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+              child: Container(color: Colors.black.withOpacity(0.16)),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(10),
+            child: Image(
+              image: provider,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.medium,
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (!u.startsWith('http')) return placeholder;
+
+    return CachedNetworkImage(
+      imageUrl: u,
+      cacheManager: kBannerCacheManager,
+      fit: BoxFit.cover,
+      fadeInDuration: const Duration(milliseconds: 80),
+      fadeOutDuration: Duration.zero,
+      memCacheWidth: small ? 420 : 1200,
+      memCacheHeight: small ? 420 : 800,
+      placeholder: (_, __) => placeholder,
+      errorWidget: (_, __, ___) => Container(
+        color: const Color(0xFFE9EEF0),
+        alignment: Alignment.center,
+        child: const Icon(
+          Icons.broken_image_rounded,
+          color: Colors.black38,
+          size: 42,
+        ),
+      ),
+    );
+  }
+}
+
+/// ✅ placeholder premium sin dependencias extra (rápido)
+class _SoftShimmerPlaceholder extends StatefulWidget {
+  final bool small;
+  const _SoftShimmerPlaceholder({required this.small});
+
+  @override
+  State<_SoftShimmerPlaceholder> createState() =>
+      _SoftShimmerPlaceholderState();
+}
+
+class _SoftShimmerPlaceholderState extends State<_SoftShimmerPlaceholder>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) {
+        final t = _c.value;
         return Container(
-          color: const Color(0xFFE9EEF0),
-          alignment: Alignment.center,
-          child: const Icon(Icons.broken_image_rounded, color: Colors.black38, size: 42),
+          decoration: const BoxDecoration(
+            color: Color(0xFFE9EEF0),
+          ),
+          child: CustomPaint(
+            painter: _ShimmerPainter(t),
+            child: const SizedBox.expand(),
+          ),
         );
       },
     );
   }
+}
+
+class _ShimmerPainter extends CustomPainter {
+  final double t;
+  _ShimmerPainter(this.t);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint();
+    final base = const Color(0xFFE9EEF0);
+    final hi = Colors.white.withOpacity(0.55);
+
+    final dx = (t * (size.width + 120)) - 120;
+    final rect = Rect.fromLTWH(dx, 0, 120, size.height);
+
+    paint.shader = LinearGradient(
+      colors: [base, hi, base],
+      stops: const [0.0, 0.5, 1.0],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    ).createShader(rect);
+
+    canvas.drawRect(Offset.zero & size, Paint()..color = base);
+    canvas.drawRect(rect, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ShimmerPainter oldDelegate) =>
+      oldDelegate.t != t;
 }

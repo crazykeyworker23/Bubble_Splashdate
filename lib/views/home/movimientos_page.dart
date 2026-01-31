@@ -277,46 +277,83 @@ class _MovimientosPageState extends State<MovimientosPage> {
                     ? (m['monto'] as num).toDouble()
                     : double.tryParse(m['monto'].toString()) ?? 0.0;
 
-                final tituloBase = tipo == 'recarga'
-                    ? 'RECARGA'
-                  : (metodo == 'Pago QR' ? 'CONSUMO' : 'COMPRA');
 
-                return ListTile(
-                  leading: Icon(
-                    tipo == 'recarga' ? Icons.add_circle : Icons.payment,
-                    color: tipo == 'recarga' ? Colors.green : Colors.blue,
-                  ),
-                  title: Text(
-                    '$tituloBase: S/. ${monto.toStringAsFixed(2)}',
-                  ),
-                  subtitle: Text(
-                    '$metodo | $fecha\nRef: $referencia',
-                  ),
-                  trailing: Text(
-                    codigo,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  isThreeLine: true,
-                  onTap: () {
-                    // Adaptar datos crudos al modelo simple.Movimiento
-                    final simpleMovimiento = simple.Movimiento(
-                      titulo: tituloBase,
-                      monto: monto,
-                      tipo: tipo,
-                      fecha: fecha,
-                    );
+                // Unificar: solo mostrar COMPRA y RECARGA
+                String tituloBase;
+                if (tipo == 'recarga') {
+                  tituloBase = 'RECARGA';
+                } else {
+                  tituloBase = 'COMPRA';
+                }
 
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => DetalleMovimientoPage(
-                          movimiento: simpleMovimiento,
-                          datosAdicionales: m,
+                // Forzar items vacío para todos los gastos si no existe, para mostrar comprobante detallado
+                final datosAdicionales = Map<String, dynamic>.from(m);
+                if (tipo == 'gasto' && datosAdicionales['items'] == null) {
+                  datosAdicionales['items'] = <dynamic>[];
+                }
+                // Solo mostrar COMPRA y RECARGA en la lista
+                if (tituloBase == 'COMPRA' || tituloBase == 'RECARGA') {
+                  return ListTile(
+                    leading: Icon(
+                      tituloBase == 'RECARGA' ? Icons.add_circle : Icons.payment,
+                      color: tituloBase == 'RECARGA' ? Colors.green : Colors.blue,
+                    ),
+                    title: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('$tituloBase: S/. ${monto.toStringAsFixed(2)}'),
+                        // Mostrar solo si hay un descuento real de la wallet
+                        if (tituloBase == 'COMPRA')
+                          (() {
+                            final wallet = m['wallet'] is num ? (m['wallet'] as num).toDouble() : null;
+                            if (wallet != null && wallet > 0) {
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 2.0),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.account_balance_wallet, size: 16, color: Color(0xFF0D6EFD)),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Descontado de wallet: -S/. ${wallet.toStringAsFixed(2)}',
+                                      style: const TextStyle(fontSize: 13, color: Color(0xFF0D6EFD)),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                            return const SizedBox.shrink();
+                          })(),
+                      ],
+                    ),
+                    subtitle: Text(
+                      '$metodo | $fecha\nRef: $referencia',
+                    ),
+                    trailing: Text(
+                      codigo,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    isThreeLine: true,
+                    onTap: () {
+                      final simpleMovimiento = simple.Movimiento(
+                        titulo: tituloBase,
+                        monto: monto,
+                        tipo: tipo,
+                        fecha: fecha,
+                      );
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => DetalleMovimientoPage(
+                            movimiento: simpleMovimiento,
+                            datosAdicionales: datosAdicionales,
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                );
+                      );
+                    },
+                  );
+                } else {
+                  return const SizedBox.shrink();
+                }
               },
             ),
     );

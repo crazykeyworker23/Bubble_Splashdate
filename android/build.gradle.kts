@@ -16,10 +16,18 @@ buildscript {
     }
 }
 
+
 allprojects {
     repositories {
         google()
         mavenCentral()
+    }
+    // Forzar Java 11 en todos los subproyectos
+    tasks.withType<JavaCompile> {
+        sourceCompatibility = "11"
+        targetCompatibility = "11"
+        options.compilerArgs.add("-Xlint:deprecation")
+        options.compilerArgs.add("-Xlint:unchecked")
     }
 }
 

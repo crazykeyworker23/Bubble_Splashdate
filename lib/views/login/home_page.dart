@@ -116,9 +116,11 @@ class _HomePageState extends State<HomePage> {
     final double safeBottom = mediaQuery.padding.bottom.clamp(0.0, 34.0);
 
     // Responsive (sin “saltos” raros)
-    final double barHeight = (size.height * 0.105).clamp(74.0, 92.0);
+
+    final double barHeight = (size.height * 0.085).clamp(70.0, 86.0); // un poco menos alto
+
     final double fabSize = (size.width * 0.16).clamp(52.0, 64.0);
-    final double extraTop = fabSize * 0.35;
+    final double extraTop = fabSize * 0.12; // antes 0.35 (esto lo subía demasiado)
 
     return Scaffold(
       body: _pages[_selectedIndex],
@@ -197,7 +199,7 @@ class _HomePageState extends State<HomePage> {
     required String label,
   }) {
     // Posiciones responsivas (clamp evita que se “salga” en pantallas pequeñas)
-    final double selectedBottom = (barHeight - (fabSize / 2) - 6).clamp(
+    final double selectedBottom = (barHeight - (fabSize / 2) - 26).clamp(
       10.0,
       barHeight - 12,
     );

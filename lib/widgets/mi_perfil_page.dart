@@ -24,7 +24,10 @@ class MiPerfilPage extends StatefulWidget {
 }
 
 class _MiPerfilPageState extends State<MiPerfilPage> {
-  final Color mainColor = const Color.fromARGB(255, 27, 111, 129);
+  static const Color _brandDark = Color(0xFF0F3D4A);
+  static const Color _brandTeal = Color(0xFF128FA0);
+  static const Color _bg = Color(0xFFF4FAFF);
+
   static const String ME_URL = 'https://services.fintbot.pe/api/auth/me/';
 
   bool _editMode = false;
@@ -34,7 +37,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _fcmTokenController = TextEditingController();
 
-  // Controladores para los campos del backend
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _fullNameController = TextEditingController();
   final TextEditingController _ageController = TextEditingController();
@@ -50,7 +52,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
 
   DateTime? _birthday;
 
-  // Opciones para selects
   final List<String> _genderOptions = const [
     'Sin especificar',
     'Masculino',
@@ -83,7 +84,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
   void initState() {
     super.initState();
     _loadProfile();
-     _loadLocalBirthday();
+    _loadLocalBirthday();
   }
 
   @override
@@ -135,7 +136,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         },
       );
 
-      // Si el token expiró (401), intentamos refrescar y reintentar una vez
       if (response.statusCode == 401 && await AuthService.refreshToken()) {
         final newToken = await _getAccessToken();
         if (newToken != null) {
@@ -155,8 +155,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text(
-                  'Tu sesión ha expirado. Inicia sesión nuevamente para ver tu perfil.'),
+              content: Text('Tu sesión ha expirado. Inicia sesión nuevamente para ver tu perfil.'),
             ),
           );
         }
@@ -165,8 +164,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-
-        // Obtener el token FCM generado por Firebase desde SharedPreferences
         final prefs = await SharedPreferences.getInstance();
         final fcm = prefs.getString('fcm_token') ?? '';
 
@@ -218,9 +215,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         _birthdayController.text =
             '${parsed.day.toString().padLeft(2, '0')}/${parsed.month.toString().padLeft(2, '0')}/${parsed.year.toString().padLeft(4, '0')}';
       });
-    } catch (_) {
-      // Si falla el parseo, ignoramos y dejamos que el usuario lo vuelva a definir.
-    }
+    } catch (_) {}
   }
 
   Future<void> _saveProfile() async {
@@ -229,7 +224,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
     setState(() => _loading = true);
 
     try {
-      // ✅ Prioriza lo que el usuario escribió
       String fcmValue = _fcmTokenController.text.trim();
       if (fcmValue.isEmpty) {
         fcmValue = (await SessionManager.getFcmToken()) ?? '';
@@ -238,18 +232,16 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         fcmValue = fcmValue.substring(0, 255);
       }
 
-      // Guardar el token FCM en SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('fcm_token', fcmValue);
 
-      // Guardar localmente la fecha de cumpleaños (solo en SharedPreferences)
       if (_birthday != null) {
         final String bStr =
             '${_birthday!.year.toString().padLeft(4, '0')}-${_birthday!.month.toString().padLeft(2, '0')}-${_birthday!.day.toString().padLeft(2, '0')}';
         await prefs.setString('birthday', bStr);
       }
 
-      final userId = await UserInfoService.fetchUserId(); // se usa para PATCH y, si quieres, para subir avatar
+      final userId = await UserInfoService.fetchUserId();
       if (userId == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -259,10 +251,8 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         return;
       }
 
-      // Actualizar latitud y longitud automáticamente desde el dispositivo (si es posible)
       await _updateLocationFromDevice();
 
-      // 1) Si se seleccionó un avatar local, subirlo y obtener URL
       if (_localAvatarFile != null) {
         try {
           final uploadedUrl = await AvatarUploadService.uploadAvatar(_localAvatarFile!);
@@ -276,7 +266,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         }
       }
 
-      // 2) Construir el body del PATCH con todos los campos editables
       double? longitude;
       double? latitude;
       if (_longitudeController.text.trim().isNotEmpty) {
@@ -329,17 +318,13 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
   Future<void> _updateLocationFromDevice() async {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        return;
-      }
+      if (!serviceEnabled) return;
 
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
-
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
         return;
       }
 
@@ -349,24 +334,111 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
 
       _latitudeController.text = position.latitude.toString();
       _longitudeController.text = position.longitude.toString();
-    } catch (_) {
-      // Si falla, no interrumpimos el guardado del perfil.
+    } catch (_) {}
+  }
+
+  // =========================
+  // 🎨 UI Helpers
+  // =========================
+  InputDecoration _premiumInputDecoration({
+    required String label,
+    IconData? icon,
+    String? hint,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: icon == null
+          ? null
+          : Icon(icon, color: _brandTeal),
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: Colors.grey.shade200),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: Colors.grey.shade200),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: _brandTeal, width: 1.4),
+      ),
+    );
+  }
+
+  Widget _sectionCard({required String title, required IconData icon, required List<Widget> children}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: _brandTeal.withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: _brandTeal, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _brandDark),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickAvatar() async {
+    final XFile? picked = await _imagePicker.pickImage(source: ImageSource.gallery, imageQuality: 88);
+    if (picked != null) {
+      setState(() => _localAvatarFile = File(picked.path));
     }
+  }
+
+  ImageProvider? _avatarProvider() {
+    if (_localAvatarFile != null) return FileImage(_localAvatarFile!);
+    final url = _avatarUrlController.text.trim();
+    if (url.isNotEmpty) return NetworkImage(url);
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: _bg,
       appBar: AppBar(
-        title: const Text("Mi Perfil", style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: mainColor,
+        elevation: 0,
+        backgroundColor: _brandDark,
         foregroundColor: Colors.white,
-        elevation: 4,
+        title: const Text("Mi Perfil", style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
+            tooltip: _editMode ? "Cancelar" : "Editar",
             icon: Icon(_editMode ? Icons.close : Icons.edit),
-            tooltip: _editMode ? "Cancelar" : "Editar perfil",
             onPressed: _loading ? null : () => setState(() => _editMode = !_editMode),
           ),
         ],
@@ -377,252 +449,369 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
               ? const Center(child: Text("No se pudo cargar el perfil"))
               : Column(
                   children: [
+                    _premiumHeader(),
                     Expanded(
                       child: SingleChildScrollView(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
                           child: Form(
                             key: _formKey,
                             child: Column(
                               children: [
-                                const SizedBox(height: 30),
-                                Center(
-                                  child: GestureDetector(
-                                    onTap: _editMode
-                                        ? () async {
-                                            final XFile? picked = await _imagePicker.pickImage(
-                                              source: ImageSource.gallery,
-                                            );
-                                            if (picked != null) {
-                                              setState(() {
-                                                _localAvatarFile = File(picked.path);
-                                              });
-                                            }
-                                          }
-                                        : null,
-                                    child: CircleAvatar(
-                                      radius: 60,
-                                      backgroundColor: Colors.white,
-                                      backgroundImage: _localAvatarFile != null
-                                          ? FileImage(_localAvatarFile!)
-                                          : (_avatarUrlController.text.trim().isNotEmpty
-                                              ? NetworkImage(_avatarUrlController.text.trim())
-                                                  as ImageProvider
-                                              : null),
-                                      child: (_localAvatarFile == null &&
-                                              _avatarUrlController.text.trim().isEmpty)
-                                          ? Icon(
-                                              FontAwesomeIcons.userCircle,
-                                              size: 80,
-                                              color: mainColor,
-                                            )
-                                          : null,
+                                _sectionCard(
+                                  title: "Identidad",
+                                  icon: Icons.badge_outlined,
+                                  children: [
+                                    TextFormField(
+                                      controller: _usernameController,
+                                      readOnly: !_editMode,
+                                      decoration: _premiumInputDecoration(
+                                        label: "Usuario",
+                                        icon: Icons.alternate_email,
+                                      ),
                                     ),
-                                  ),
-                                ),
-                                // Usuario
-                                TextFormField(
-                                  controller: _usernameController,
-                                  readOnly: !_editMode,
-                                  decoration: const InputDecoration(
-                                    labelText: "Usuario",
-                                    border: OutlineInputBorder(),
-                                  ),
-                                ),
+                                    const SizedBox(height: 10),
+                                    TextFormField(
+                                      controller: _fullNameController,
+                                      readOnly: !_editMode,
+                                      decoration: _premiumInputDecoration(
+                                        label: "Nombre completo",
+                                        icon: Icons.person_outline,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    TextFormField(
+                                      controller: _ageController,
+                                      readOnly: !_editMode,
+                                      keyboardType: TextInputType.number,
+                                      decoration: _premiumInputDecoration(
+                                        label: "Edad",
+                                        icon: Icons.cake_outlined,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    TextFormField(
+                                      controller: _birthdayController,
+                                      readOnly: true,
+                                      decoration: _premiumInputDecoration(
+                                        label: "Cumpleaños (para beneficios)",
+                                        icon: Icons.event_outlined,
+                                      ),
+                                      onTap: !_editMode ? null : () async {
+                                        final now = DateTime.now();
+                                        final initialDate = _birthday ?? DateTime(now.year - 18, now.month, now.day);
 
-                                const SizedBox(height: 10),
+                                        final picked = await showDatePicker(
+                                          context: context,
+                                          initialDate: initialDate,
+                                          firstDate: DateTime(1900),
+                                          lastDate: now,
+                                        );
 
-                                // Nombre completo
-                                TextFormField(
-                                  controller: _fullNameController,
-                                  readOnly: !_editMode,
-                                  decoration: const InputDecoration(
-                                    labelText: "Nombre completo",
-                                    border: OutlineInputBorder(),
-                                  ),
-                                ),
-
-                                const SizedBox(height: 10),
-
-                                // Edad
-                                TextFormField(
-                                  controller: _ageController,
-                                  readOnly: !_editMode,
-                                  keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
-                                    labelText: "Edad",
-                                    border: OutlineInputBorder(),
-                                  ),
-                                ),
-
-                                const SizedBox(height: 10),
-
-                                // Fecha de cumpleaños (local, para beneficios)
-                                TextFormField(
-                                  controller: _birthdayController,
-                                  readOnly: true,
-                                  decoration: const InputDecoration(
-                                    labelText: "Fecha de cumpleaños (para beneficios)",
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  onTap: !_editMode
-                                      ? null
-                                      : () async {
-                                          final DateTime now = DateTime.now();
-                                          final DateTime initialDate = _birthday ??
-                                              DateTime(now.year - 18, now.month, now.day);
-
-                                          final DateTime? picked = await showDatePicker(
-                                            context: context,
-                                            initialDate: initialDate,
-                                            firstDate: DateTime(1900),
-                                            lastDate: now,
-                                          );
-
-                                          if (picked != null) {
-                                            setState(() {
-                                              _birthday = picked;
-                                              _birthdayController.text =
-                                                  '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year.toString().padLeft(4, '0')}';
-                                            });
-                                          }
-                                        },
-                                ),
-
-                                const SizedBox(height: 10),
-
-                                // Género
-                                DropdownButtonFormField<String>(
-                                  value: _genderOptions.contains(_genderController.text)
-                                      ? _genderController.text
-                                      : _genderOptions.first,
-                                  decoration: const InputDecoration(
-                                    labelText: "Género",
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  items: _genderOptions
-                                      .map((g) => DropdownMenuItem<String>(
-                                            value: g,
-                                            child: Text(g),
-                                          ))
-                                      .toList(),
-                                  onChanged: !_editMode
-                                      ? null
-                                      : (value) {
-                                          if (value == null) return;
+                                        if (picked != null) {
                                           setState(() {
-                                            _genderController.text = value;
+                                            _birthday = picked;
+                                            _birthdayController.text =
+                                                '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year.toString().padLeft(4, '0')}';
                                           });
-                                        },
+                                        }
+                                      },
+                                    ),
+                                    const SizedBox(height: 10),
+                                    DropdownButtonFormField<String>(
+                                      value: _genderOptions.contains(_genderController.text)
+                                          ? _genderController.text
+                                          : _genderOptions.first,
+                                      decoration: _premiumInputDecoration(
+                                        label: "Género",
+                                        icon: Icons.wc_outlined,
+                                      ),
+                                      items: _genderOptions
+                                          .map((g) => DropdownMenuItem<String>(value: g, child: Text(g)))
+                                          .toList(),
+                                      onChanged: !_editMode
+                                          ? null
+                                          : (v) => setState(() => _genderController.text = (v ?? _genderOptions.first)),
+                                    ),
+                                  ],
                                 ),
-
-                                const SizedBox(height: 10),
-
-                                // Descripción
-                                TextFormField(
-                                  controller: _descriptionController,
-                                  readOnly: !_editMode,
-                                  maxLines: 2,
-                                  decoration: const InputDecoration(
-                                    labelText: "Descripción",
-                                    border: OutlineInputBorder(),
-                                  ),
+                                _sectionCard(
+                                  title: "Sobre ti",
+                                  icon: Icons.notes_outlined,
+                                  children: [
+                                    TextFormField(
+                                      controller: _descriptionController,
+                                      readOnly: !_editMode,
+                                      maxLines: 3,
+                                      decoration: _premiumInputDecoration(
+                                        label: "Descripción",
+                                        icon: Icons.short_text,
+                                        hint: "Cuéntanos un poco sobre ti",
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    TextFormField(
+                                      controller: _addressController,
+                                      readOnly: !_editMode,
+                                      decoration: _premiumInputDecoration(
+                                        label: "Dirección",
+                                        icon: Icons.location_on_outlined,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-
-                                const SizedBox(height: 10),
-
-                                // Dirección
-                                TextFormField(
-                                  controller: _addressController,
-                                  readOnly: !_editMode,
-                                  decoration: const InputDecoration(
-                                    labelText: "Dirección",
-                                    border: OutlineInputBorder(),
-                                  ),
+                                _sectionCard(
+                                  title: "Ocupación y estudios",
+                                  icon: Icons.school_outlined,
+                                  children: [
+                                    DropdownButtonFormField<String>(
+                                      value: _occupationOptions.contains(_occupationController.text)
+                                          ? _occupationController.text
+                                          : _occupationOptions.first,
+                                      decoration: _premiumInputDecoration(
+                                        label: "Ocupación",
+                                        icon: Icons.work_outline,
+                                      ),
+                                      items: _occupationOptions
+                                          .map((o) => DropdownMenuItem<String>(value: o, child: Text(o)))
+                                          .toList(),
+                                      onChanged: !_editMode
+                                          ? null
+                                          : (v) => setState(() => _occupationController.text = (v ?? _occupationOptions.first)),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    DropdownButtonFormField<String>(
+                                      value: _educationOptions.contains(_educationLevelController.text)
+                                          ? _educationLevelController.text
+                                          : _educationOptions.first,
+                                      decoration: _premiumInputDecoration(
+                                        label: "Nivel de educación",
+                                        icon: Icons.menu_book_outlined,
+                                      ),
+                                      items: _educationOptions
+                                          .map((e) => DropdownMenuItem<String>(value: e, child: Text(e)))
+                                          .toList(),
+                                      onChanged: !_editMode
+                                          ? null
+                                          : (v) => setState(() => _educationLevelController.text = (v ?? _educationOptions.first)),
+                                    ),
+                                  ],
                                 ),
-
-                                const SizedBox(height: 10),
-
-                                // Ocupación
-                                DropdownButtonFormField<String>(
-                                  value: _occupationOptions.contains(_occupationController.text)
-                                      ? _occupationController.text
-                                      : _occupationOptions.first,
-                                  decoration: const InputDecoration(
-                                    labelText: "Ocupación",
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  items: _occupationOptions
-                                      .map((o) => DropdownMenuItem<String>(
-                                            value: o,
-                                            child: Text(o),
-                                          ))
-                                      .toList(),
-                                  onChanged: !_editMode
-                                      ? null
-                                      : (value) {
-                                          if (value == null) return;
-                                          setState(() {
-                                            _occupationController.text = value;
-                                          });
-                                        },
+                                _sectionCard(
+                                  title: "Ubicación",
+                                  icon: Icons.my_location_outlined,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: TextFormField(
+                                            controller: _latitudeController,
+                                            readOnly: true,
+                                            decoration: _premiumInputDecoration(
+                                              label: "Latitud",
+                                              icon: Icons.explore_outlined,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: TextFormField(
+                                            controller: _longitudeController,
+                                            readOnly: true,
+                                            decoration: _premiumInputDecoration(
+                                              label: "Longitud",
+                                              icon: Icons.explore,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton.icon(
+                                        onPressed: _editMode ? _updateLocationFromDevice : null,
+                                        icon: const Icon(Icons.gps_fixed),
+                                        label: const Text("Actualizar ubicación"),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: _brandTeal,
+                                          side: BorderSide(color: _brandTeal.withOpacity(0.6)),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-
-                                const SizedBox(height: 10),
-
-                                // Nivel educativo
-                                DropdownButtonFormField<String>(
-                                  value: _educationOptions.contains(_educationLevelController.text)
-                                      ? _educationLevelController.text
-                                      : _educationOptions.first,
-                                  decoration: const InputDecoration(
-                                    labelText: "Nivel de educación",
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  items: _educationOptions
-                                      .map((e) => DropdownMenuItem<String>(
-                                            value: e,
-                                            child: Text(e),
-                                          ))
-                                      .toList(),
-                                  onChanged: !_editMode
-                                      ? null
-                                      : (value) {
-                                          if (value == null) return;
-                                          setState(() {
-                                            _educationLevelController.text = value;
-                                          });
-                                        },
-                                ),
-
-                                const SizedBox(height: 30),
+                                const SizedBox(height: 90),
                               ],
                             ),
                           ),
                         ),
                       ),
                     ),
-                    if (_editMode)
-                      SafeArea(
-                        top: false,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              icon: const Icon(Icons.save),
-                              label: const Text("Guardar cambios"),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: mainColor,
-                                foregroundColor: Colors.white,
-                              ),
-                              onPressed: _loading ? null : _saveProfile,
-                            ),
-                          ),
-                        ),
-                      ),
+                    if (_editMode) _bottomSaveBar(),
                   ],
                 ),
+    );
+  }
+
+  Widget _premiumHeader() {
+    final avatar = _avatarProvider();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [_brandDark, _brandTeal],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(26),
+          bottomRight: Radius.circular(26),
+        ),
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: _editMode ? _pickAvatar : null,
+            child: Stack(
+              children: [
+                Container(
+                  width: 78,
+                  height: 78,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white,
+                    image: avatar != null
+                        ? DecorationImage(image: avatar, fit: BoxFit.cover)
+                        : null,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.20),
+                        blurRadius: 18,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: avatar == null
+                      ? const Center(
+                          child: Icon(
+                            FontAwesomeIcons.userCircle,
+                            size: 46,
+                            color: _brandTeal,
+                          ),
+                        )
+                      : null,
+                ),
+                if (_editMode)
+                  Positioned(
+                    bottom: 2,
+                    right: 2,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.camera_alt, size: 15, color: _brandTeal),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _fullNameController.text.trim().isEmpty ? "Tu perfil" : _fullNameController.text.trim(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _usernameController.text.trim().isEmpty ? "@" : "@${_usernameController.text.trim()}",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Colors.white.withOpacity(0.25)),
+                  ),
+                  child: Text(
+                    _editMode ? "Modo edición" : "Vista segura",
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bottomSaveBar() {
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 18,
+              offset: const Offset(0, -8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _loading ? null : () => setState(() => _editMode = false),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _brandDark,
+                  side: BorderSide(color: _brandDark.withOpacity(0.25)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: const Text("Cancelar"),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _loading ? null : _saveProfile,
+                icon: const Icon(Icons.save),
+                label: const Text("Guardar"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _brandTeal,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -1,25 +1,27 @@
-import 'package:flutter/material.dart';
-import 'package:open_file/open_file.dart';
-import 'package:flutter/rendering.dart';
-import 'package:ionicons/ionicons.dart';
-
-import 'detail_movimiento_page.dart';
-import 'scanner_page.dart';
-import 'movimiento.dart';
-import 'movimientos_page.dart';
-
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:ionicons/ionicons.dart';
+import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
+
 import 'package:bubblesplash/services/auth_service.dart';
+import 'package:bubblesplash/widgets/cart_fab_button.dart';
+
+import 'scanner_page.dart';
+import 'movimientos_page.dart';
+import 'movimiento.dart';
+import 'detail_movimiento_page.dart';
 
 class PagosPage extends StatefulWidget {
   const PagosPage({super.key});
@@ -29,11 +31,17 @@ class PagosPage extends StatefulWidget {
 }
 
 class _PagosPageState extends State<PagosPage> {
+  // ====== UI TOKENS ======
+  static const Color mainColor = Color(0xFF1B6F81);
+  static const Color accentBlue = Color(0xFF0D6EFD);
+  static const Color premiumBg = Color(0xFFF6F7FB);
+
   // Clave para capturar el comprobante como imagen
   final GlobalKey _comprobanteKey = GlobalKey();
 
   bool _mostrarSaldo = true;
   double saldoActual = 0.0;
+  bool _loadingSaldo = true;
 
   // Datos de la empresa / cliente para el comprobante
   final String _razonSocial = "BubbleSplash SAC";
@@ -48,7 +56,130 @@ class _PagosPageState extends State<PagosPage> {
     _cargarNombreCliente();
   }
 
+  // =========================
+  // ✅ MODAL PREMIUM (reemplaza SnackBar)
+  // =========================
+  Future<void> _showPremiumModal({
+    required String title,
+    required String message,
+    IconData icon = Icons.info_rounded,
+    Color accent = mainColor,
+    String buttonText = 'Entendido',
+    bool barrierDismissible = true,
+  }) async {
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: false,
+      backgroundColor: Colors.transparent,
+      isDismissible: barrierDismissible,
+      enableDrag: barrierDismissible,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.18),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Handle
+                  Container(
+                    width: 46,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Icon
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: accent.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Icon(icon, size: 34, color: accent),
+                  ),
+                  const SizedBox(height: 14),
+
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: accent,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      height: 1.25,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: accent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        elevation: 0,
+                      ),
+                      onPressed: () => Navigator.pop(ctx),
+                      child: Text(
+                        buttonText,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _refreshAll() async {
+    await Future.wait([
+      _cargarSaldo(),
+      _cargarNombreCliente(),
+    ]);
+  }
+
   Future<void> _cargarSaldo() async {
+    setState(() => _loadingSaldo = true);
     try {
       final prefs = await SharedPreferences.getInstance();
       final rawToken = prefs.getString('access_token');
@@ -56,14 +187,15 @@ class _PagosPageState extends State<PagosPage> {
       if (rawToken == null || rawToken.trim().isEmpty) {
         setState(() {
           saldoActual = 0.0;
+          _loadingSaldo = false;
         });
         debugPrint('No hay access_token para consultar el saldo en la API');
         return;
       }
 
       final token = rawToken.trim();
-      final uri = Uri.parse(
-          'https://services.fintbot.pe/api/bubblesplash/wallet/me/');
+      final uri =
+          Uri.parse('https://services.fintbot.pe/api/bubblesplash/wallet/me/');
 
       http.Response response = await http.get(
         uri,
@@ -93,31 +225,53 @@ class _PagosPageState extends State<PagosPage> {
         debugPrint('Sesión expirada al consultar saldo wallet/me');
         setState(() {
           saldoActual = 0.0;
+          _loadingSaldo = false;
         });
+        await _showPremiumModal(
+          title: 'Sesión expirada',
+          message: 'Tu sesión expiró. Inicia sesión nuevamente para ver tu saldo.',
+          icon: Icons.schedule_rounded,
+          accent: const Color(0xFFE80A5D),
+        );
         return;
       }
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final String balanceStr =
-            (data['wal_de_balance'] ?? '0').toString();
+        final String balanceStr = (data['wal_de_balance'] ?? '0').toString();
         final double balance = double.tryParse(balanceStr) ?? 0.0;
 
         setState(() {
           saldoActual = balance;
+          _loadingSaldo = false;
         });
       } else {
         debugPrint(
-            'Error al cargar saldo desde API wallet/me: ${response.statusCode} ${response.body}');
+          'Error al cargar saldo desde API wallet/me: ${response.statusCode} ${response.body}',
+        );
         setState(() {
           saldoActual = 0.0;
+          _loadingSaldo = false;
         });
+        await _showPremiumModal(
+          title: 'No se pudo cargar',
+          message: 'No se pudo cargar tu saldo. Intenta nuevamente.',
+          icon: Icons.wifi_off_rounded,
+          accent: const Color(0xFFE80A5D),
+        );
       }
     } catch (e) {
       debugPrint('Excepción al cargar saldo desde API wallet/me: $e');
       setState(() {
         saldoActual = 0.0;
+        _loadingSaldo = false;
       });
+      await _showPremiumModal(
+        title: 'Error',
+        message: 'Ocurrió un error al cargar tu saldo.',
+        icon: Icons.error_rounded,
+        accent: const Color(0xFFE53935),
+      );
     }
   }
 
@@ -125,671 +279,533 @@ class _PagosPageState extends State<PagosPage> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       setState(() {
-        _nombreCliente =
-            user?.displayName ?? user?.email ?? 'Cliente';
+        _nombreCliente = user?.displayName ?? user?.email ?? 'Cliente';
       });
     } catch (_) {
-      // En caso de no tener Firebase inicializado o sin sesión
       setState(() {
         _nombreCliente = 'Cliente';
       });
     }
   }
 
+  // ===============================
+  // ✅ VISTA PREMIUM (Sliver + Cards)
+  // ===============================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
-      body: Stack(
-        children: [
-          // Header azul grande y fijo
-          SafeArea(
-            child: Container(
-              height: 250,
-              decoration: const BoxDecoration(
-                color: Color.fromARGB(255, 27, 111, 129),
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(25),
-                  bottomRight: Radius.circular(25),
-                ),
+      backgroundColor: premiumBg,
+      body: RefreshIndicator(
+        onRefresh: _refreshAll,
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          slivers: [
+            SliverAppBar(
+              pinned: true,
+              elevation: 0,
+              backgroundColor: mainColor,
+              expandedHeight: 260,
+              title: const Text(
+                'Mi Wallet',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: Colors.white),
+                
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Mi Wallet",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
+              actions: [
+                IconButton(
+                  tooltip: _mostrarSaldo ? 'Ocultar saldo' : 'Mostrar saldo',
+                  icon: Icon(
+                    _mostrarSaldo ? Ionicons.eye_outline : Ionicons.eye_off_outline,
+                    color: Colors.white,
+                  ),
+                  onPressed: () => setState(() => _mostrarSaldo = !_mostrarSaldo),
+                ),
+                const SizedBox(width: 4),
+              ],
+              flexibleSpace: FlexibleSpaceBar(
+                background: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Color(0xFF0F3D4A),
+                        Color(0xFF128FA0),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    "Paga y acumula puntos.",
-                    style: TextStyle(color: Colors.white70, fontSize: 15),
-                  ),
-                  const SizedBox(height: 20),
-                  // Tarjeta de saldo + botón Recargar separado a la derecha
-                  Row(
-                    children: [
-                      // Contenedor de saldo
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 18),
-                          decoration: BoxDecoration(
-                            color: const Color.fromARGB(255, 76, 155, 10),
-                            borderRadius: BorderRadius.circular(15),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.15),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      "Saldo disponible",
-                                      style: TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    AnimatedSwitcher(
-                                      duration:
-                                          const Duration(milliseconds: 300),
-                                      child: _mostrarSaldo
-                                          ? Text(
-                                              "S/ ${saldoActual.toStringAsFixed(2)}",
-                                              key: const ValueKey('saldo'),
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 32,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            )
-                                          : const Text(
-                                              "••••••••",
-                                              key: ValueKey('oculto'),
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 32,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              IconButton(
-                                icon: Icon(
-                                  _mostrarSaldo
-                                      ? Ionicons.eye_outline
-                                      : Ionicons.eye_off_outline,
-                                  color: Colors.white,
-                                  size: 26,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    _mostrarSaldo = !_mostrarSaldo;
-                                  });
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      // Botón Recargar separado al costado derecho
-                      SizedBox(
-                        height: 40,
-                        child: ElevatedButton(
-                          onPressed: _mostrarPopupRecarga,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                const Color.fromARGB(255, 255, 255, 255),
-                            foregroundColor:
-                                const Color.fromARGB(255, 27, 111, 129),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 0),
-                            textStyle: const TextStyle(
-                              fontSize: 13,
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 56, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Paga y acumula puntos.",
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14,
                               fontWeight: FontWeight.w600,
                             ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
+                          ),
+                          const SizedBox(height: 14),
+
+                          // ====== GLASS BALANCE CARD ======
+                          _GlassCard(
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.16),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: const Icon(
+                                    Icons.account_balance_wallet_rounded,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        "Saldo disponible",
+                                        style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      AnimatedSwitcher(
+                                        duration: const Duration(milliseconds: 220),
+                                        child: _loadingSaldo
+                                            ? const _ShimmerLine(key: ValueKey('loading'))
+                                            : (_mostrarSaldo
+                                                ? Text(
+                                                    "S/ ${saldoActual.toStringAsFixed(2)}",
+                                                    key: const ValueKey('saldo'),
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 28,
+                                                      fontWeight: FontWeight.w900,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  )
+                                                : const Text(
+                                                    "••••••••",
+                                                    key: ValueKey('oculto'),
+                                                    style: TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 28,
+                                                      fontWeight: FontWeight.w900,
+                                                    ),
+                                                  )),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                _PillButton(
+                                  text: 'Recargar',
+                                  icon: Icons.add_rounded,
+                                  onTap: _mostrarPopupRecargaPremium,
+                                ),
+                              ],
                             ),
                           ),
-                          child: const Text('Recargar'),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ],
+                ),
               ),
             ),
-          ),
 
-          // Contenido desplazable debajo del header
-          Padding(
-            padding: const EdgeInsets.only(top: 300),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(
-                left: 20,
-                right: 20,
-                bottom: 90, // espacio para footer
-              ),
-              child: Column(
-                children: [
-                  // Botón Escanear
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () async {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ScannerPage(),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Ionicons.camera_outline,
-                              color: Colors.black87),
-                          label: const Text(
-                            "Escanear",
-                            style: TextStyle(
-                                color: Colors.black87,
-                                fontWeight: FontWeight.w600),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                            shadowColor: Colors.black.withOpacity(0.1),
-                            elevation: 3,
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate(
+                  [
+                    // ====== ACCIONES ======
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ActionCard(
+                            title: 'Escanear',
+                            subtitle: 'QR / pagos',
+                            icon: Ionicons.camera_outline,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const ScannerPage()),
+                              );
+                            },
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _ActionCard(
+                            title: 'Movimientos',
+                            subtitle: 'Historial',
+                            icon: Ionicons.receipt_outline,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const MovimientosPage()),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
 
-                  const SizedBox(height: 30),
+                    const SizedBox(height: 18),
 
-                  const Text(
-                    "Movimientos",
-                    style: TextStyle(
-                        color: Colors.black87,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 15),
-
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.history),
-                      label: const Text(
-                        'Ver historial de movimientos',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      onPressed: () {
+                    // ====== MOVIMIENTOS PREVIEW ======
+                    _SectionHeader(
+                      title: 'Movimientos',
+                      trailingText: 'Ver todo',
+                      onTrailingTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => const MovimientosPage(),
-                          ),
+                          MaterialPageRoute(builder: (_) => const MovimientosPage()),
                         );
                       },
                     ),
-                  ),
+                    const SizedBox(height: 10),
 
-                  const SizedBox(height: 15),
+                    _PremiumCard(
+                      child: FutureBuilder<List<Map<String, dynamic>>>(
+                        future: _cargarMovimientosPreview(),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return Column(
+                              children: const [
+                                _SkeletonMovimiento(),
+                                _SkeletonMovimiento(),
+                                _SkeletonMovimiento(),
+                              ],
+                            );
+                          }
 
-                  // Vista rápida de los últimos movimientos guardados
-                  FutureBuilder<List<Map<String, dynamic>>>(
-                    future: _cargarMovimientosPreview(),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
+                          final data = snapshot.data ?? [];
+                          final filtrados = data.where((m) {
+                            final tipo = (m['tipo'] ?? '').toString();
+                            return tipo == 'recarga' || tipo == 'movimiento';
+                          }).toList();
 
-                      final data = snapshot.data ?? [];
-                      if (data.isEmpty) {
-                        return const Text(
-                          'Aún no tienes movimientos registrados.',
-                          style: TextStyle(color: Colors.black54),
-                        );
-                      }
+                          if (filtrados.isEmpty) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 10),
+                              child: Text(
+                                'Aún no tienes movimientos registrados.',
+                                style: TextStyle(color: Colors.black54, fontWeight: FontWeight.w600),
+                              ),
+                            );
+                          }
 
-                      final ultimos = data.take(3).toList();
-                      return Column(
-                        children: ultimos
-                            .map((m) => MovimientoItem(movimientoRaw: m))
-                            .toList(),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 50),
-                ],
+                          final ultimos = filtrados.take(3).toList();
+                          return Column(
+                            children: [
+                              for (int i = 0; i < ultimos.length; i++) ...[
+                                MovimientoItemPremium(movimientoRaw: ultimos[i]),
+                                if (i != ultimos.length - 1)
+                                  Divider(height: 16, color: Colors.black.withOpacity(0.06)),
+                              ]
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
+      ),
+
+      floatingActionButton: CartFabButton(
+        count: 0, // TODO: conecta tu contador real
+        onPressed: () => Navigator.pushNamed(context, '/cart'),
+        draggable: false,
+        heroTag: 'pagos_cart_fab',
       ),
     );
-  } 
+  }
 
-  // --- POPUP PARA MOSTRAR LA RECARGA DE SALDO ---
-  void _mostrarPopupRecarga() {
+  // =========================
+  // ✅ RECARGA PREMIUM (BottomSheet)
+  // =========================
+  void _mostrarPopupRecargaPremium() {
     double? montoSeleccionado;
     String tipoTransferencia = "Billetera Digital";
     String metodoOtraBilletera = "Yape";
     final TextEditingController montoController = TextEditingController();
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: true,
-      builder: (BuildContext dialogContext) {
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetCtx) {
         return StatefulBuilder(
-          builder: (BuildContext context,
-              void Function(void Function()) setModalState) {
-            return Dialog(
-              insetPadding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 80),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
-              backgroundColor: Colors.white,
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          builder: (context, setModalState) {
+            Widget buildTransferExtra() {
+              if (tipoTransferencia == "Billetera Digital") {
+                return _InfoBox(
+                  icon: Icons.account_balance_wallet_rounded,
+                  title: 'Billetera Digital',
+                  message:
+                      'Recarga con tu billetera digital vinculada. Sigue los pasos para completar el pago.',
+                  accent: accentBlue,
+                );
+              }
+              if (tipoTransferencia == "Transferencia Bancaria") {
+                return _InfoBox(
+                  icon: Icons.account_balance_rounded,
+                  title: 'Transferencia Bancaria',
+                  message:
+                      'Banco: BCP\nCuenta: 123-45678901-0-12\nTitular: Bubble Tea SAC',
+                  accent: Colors.black87,
+                );
+              }
+              // Otra billetera
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Elige tu billetera',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
                     children: [
-                      // --- TÍTULO ---
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            "Recargar Saldo",
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
+                      Expanded(
+                        child: ChoiceChip(
+                          label: const Text("Yape"),
+                          selected: metodoOtraBilletera == "Yape",
+                          selectedColor: accentBlue,
+                          backgroundColor: Colors.black.withOpacity(0.06),
+                          labelStyle: TextStyle(
+                            color: metodoOtraBilletera == "Yape" ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.w800,
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.close, size: 28),
-                            onPressed: () => Navigator.pop(dialogContext),
-                          ),
-                        ],
+                          onSelected: (_) => setModalState(() => metodoOtraBilletera = "Yape"),
+                        ),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ChoiceChip(
+                          label: const Text("Plin"),
+                          selected: metodoOtraBilletera == "Plin",
+                          selectedColor: accentBlue,
+                          backgroundColor: Colors.black.withOpacity(0.06),
+                          labelStyle: TextStyle(
+                            color: metodoOtraBilletera == "Plin" ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.w800,
+                          ),
+                          onSelected: (_) => setModalState(() => metodoOtraBilletera = "Plin"),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Escanea el QR o usa el número asociado para completar la recarga.',
+                    style: TextStyle(color: Colors.black.withOpacity(0.55), fontWeight: FontWeight.w600),
+                  ),
+                ],
+              );
+            }
 
-                      // --- SALDO ACTUAL ---
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            "Saldo actual",
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.black54,
-                            ),
-                          ),
-                          Text(
-                            "S/ ${saldoActual.toStringAsFixed(2)}",
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 12,
+                  right: 12,
+                  bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 12,
+                ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.18),
+                        blurRadius: 24,
+                        offset: const Offset(0, 10),
                       ),
-                      const SizedBox(height: 15),
-                      const Divider(color: Colors.black26, thickness: 1),
-                      const SizedBox(height: 15),
-
-                      // --- MONTOS RÁPIDOS ---
-                      const Text(
-                        "Montos rápidos",
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 10,
-                        children: [50, 100, 200, 500].map((monto) {
-                          final isSelected = montoSeleccionado == monto;
-                          return ChoiceChip(
-                            label: Text("S/ $monto"),
-                            selected: isSelected,
-                            selectedColor: const Color(0xFF0D6EFD),
-                            onSelected: (selected) {
-                              setModalState(() {
-                                if (isSelected) {
-                                  montoSeleccionado = null;
-                                } else {
-                                  montoSeleccionado = monto.toDouble();
-                                  montoController.clear();
-                                }
-                              });
-                            },
-                            backgroundColor: Colors.grey[200],
-                            labelStyle: TextStyle(
-                              color:
-                                  isSelected ? Colors.white : Colors.black87,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 15),
-
-                      // --- MONTO PERSONALIZADO ---
-                      Column(
+                    ],
+                  ),
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            "Monto personalizado",
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.black87,
+                          Center(
+                            child: Container(
+                              width: 46,
+                              height: 5,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(99),
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 14),
+
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Recargar saldo',
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => Navigator.pop(sheetCtx),
+                                icon: const Icon(Icons.close_rounded),
+                              )
+                            ],
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          _PremiumCard(
+                            padding: const EdgeInsets.all(14),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Saldo actual',
+                                  style: TextStyle(
+                                    color: Colors.black.withOpacity(0.55),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                Text(
+                                  'S/ ${saldoActual.toStringAsFixed(2)}',
+                                  style: const TextStyle(fontWeight: FontWeight.w900),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          const Text('Montos rápidos', style: TextStyle(fontWeight: FontWeight.w900)),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [50, 100, 200, 500].map((monto) {
+                              final isSelected = montoSeleccionado == monto;
+                              return ChoiceChip(
+                                label: Text("S/ $monto"),
+                                selected: isSelected,
+                                selectedColor: accentBlue,
+                                backgroundColor: Colors.black.withOpacity(0.06),
+                                labelStyle: TextStyle(
+                                  color: isSelected ? Colors.white : Colors.black87,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                                onSelected: (_) {
+                                  setModalState(() {
+                                    if (isSelected) {
+                                      montoSeleccionado = null;
+                                    } else {
+                                      montoSeleccionado = monto.toDouble();
+                                      montoController.clear();
+                                    }
+                                  });
+                                },
+                              );
+                            }).toList(),
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          const Text('Monto personalizado', style: TextStyle(fontWeight: FontWeight.w900)),
+                          const SizedBox(height: 8),
                           TextField(
                             controller: montoController,
                             keyboardType: TextInputType.number,
                             decoration: InputDecoration(
+                              hintText: 'Ingresa un monto',
                               filled: true,
-                              fillColor: Colors.grey[200],
+                              fillColor: Colors.black.withOpacity(0.04),
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(14),
                                 borderSide: BorderSide.none,
                               ),
-                              hintText: "Ingrese monto",
                             ),
                             onChanged: (value) {
-                              setModalState(() {
-                                montoSeleccionado = double.tryParse(value);
-                              });
+                              setModalState(() => montoSeleccionado = double.tryParse(value));
                             },
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          const Text('Tipo de transferencia', style: TextStyle(fontWeight: FontWeight.w900)),
+                          const SizedBox(height: 10),
+
+                          _SegmentedChips(
+                            value: tipoTransferencia,
+                            options: const [
+                              "Billetera Digital",
+                              "Transferencia Bancaria",
+                              "Otra billetera",
+                            ],
+                            onChanged: (v) => setModalState(() => tipoTransferencia = v),
+                          ),
+
+                          const SizedBox(height: 12),
+                          buildTransferExtra(),
+                          const SizedBox(height: 16),
+
+                          SizedBox(
+                            width: double.infinity,
+                            height: 52,
+                            child: ElevatedButton(
+                              onPressed: () async {
+                                if (montoSeleccionado != null && montoSeleccionado! > 0) {
+                                  Navigator.pop(sheetCtx);
+                                  await Future.delayed(const Duration(milliseconds: 250));
+                                  if (!mounted) return;
+                                  await _realizarRecargaBackend(
+                                    montoSeleccionado!,
+                                    tipoTransferencia,
+                                    metodoOtraBilletera,
+                                  );
+                                } else {
+                                  await _showPremiumModal(
+                                    title: 'Monto inválido',
+                                    message: 'Selecciona o ingresa un monto mayor a 0.',
+                                    icon: Icons.warning_amber_rounded,
+                                    accent: const Color(0xFFFFA726),
+                                  );
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: accentBlue,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                elevation: 0,
+                              ),
+                              child: const Text(
+                                'Recargar',
+                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 15),
-
-                      // --- TIPO DE TRANSFERENCIA ---
-                      const Text(
-                        "Tipo de transferencia",
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 10),
-                      Column(
-                        children: [
-                          "Billetera Digital",
-                          "Transferencia Bancaria",
-                          "Otra billetera",
-                        ].map((tipo) {
-                          final isSelected = tipoTransferencia == tipo;
-                          return GestureDetector(
-                            onTap: () {
-                              setModalState(() {
-                                tipoTransferencia = tipo;
-                              });
-                            },
-                            child: Container(
-                              margin:
-                                  const EdgeInsets.symmetric(vertical: 5),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? const Color(0xFFE3F2FD)
-                                    : Colors.white,
-                                border: Border.all(
-                                  color: isSelected
-                                      ? const Color(0xFF0D6EFD)
-                                      : Colors.grey.shade300,
-                                  width: 1.5,
-                                ),
-                                borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                children: [
-                                  Radio<String>(
-                                    value: tipo,
-                                    groupValue: tipoTransferencia,
-                                    onChanged: (value) {
-                                      setModalState(() {
-                                        tipoTransferencia = value!;
-                                      });
-                                    },
-                                    activeColor: const Color(0xFF0D6EFD),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(tipo),
-                                ],
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 15),
-
-                      // --- CONTENIDO ADICIONAL SEGÚN TIPO ---
-                      if (tipoTransferencia == "Billetera Digital") ...[
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE3F2FD),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: const Color(0xFF0D6EFD),
-                              width: 1,
-                            ),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Icon(
-                                Icons.account_balance_wallet,
-                                color: Color(0xFF0D6EFD),
-                              ),
-                              SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  "Recargar con mi billetera digital vinculada. Sigue los pasos de tu billetera para completar el pago.",
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ] else if (tipoTransferencia == "Transferencia Bancaria") ...[
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.grey.shade300,
-                              width: 1,
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Text(
-                                "Transfiere al siguiente número de cuenta:",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                "Banco: BCP",
-                                style: TextStyle(fontSize: 13),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                "Cuenta: 123-45678901-0-12",
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                "Titular: Bubble Tea SAC",
-                                style: TextStyle(fontSize: 13),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ] else if (tipoTransferencia == "Otra billetera") ...[
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              "Elige tu billetera:",
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ChoiceChip(
-                                    label: const Text("Yape"),
-                                    selected: metodoOtraBilletera == "Yape",
-                                    selectedColor: const Color(0xFF0D6EFD)
-                                        .withOpacity(0.9),
-                                    onSelected: (_) {
-                                      setModalState(() {
-                                        metodoOtraBilletera = "Yape";
-                                      });
-                                    },
-                                    labelStyle: TextStyle(
-                                      color: metodoOtraBilletera == "Yape"
-                                          ? Colors.white
-                                          : Colors.black87,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    backgroundColor: Colors.grey[200],
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: ChoiceChip(
-                                    label: const Text("Plin"),
-                                    selected: metodoOtraBilletera == "Plin",
-                                    selectedColor: const Color(0xFF0D6EFD)
-                                        .withOpacity(0.9),
-                                    onSelected: (_) {
-                                      setModalState(() {
-                                        metodoOtraBilletera = "Plin";
-                                      });
-                                    },
-                                    labelStyle: TextStyle(
-                                      color: metodoOtraBilletera == "Plin"
-                                          ? Colors.white
-                                          : Colors.black87,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    backgroundColor: Colors.grey[200],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            const Text(
-                              "Escanea el QR o usa el número asociado a tu Yape o Plin para completar la recarga.",
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.black87,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-
-                      const SizedBox(height: 20),
-
-                      // --- BOTÓN CONFIRMAR ---
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () async {
-                            if (montoSeleccionado != null &&
-                                montoSeleccionado! > 0) {
-                              Navigator.of(dialogContext).pop();
-                              await Future.delayed(
-                                  const Duration(milliseconds: 300));
-
-                              if (mounted) {
-                                await _realizarRecargaBackend(
-                                  montoSeleccionado!,
-                                  tipoTransferencia,
-                                  metodoOtraBilletera,
-                                );
-                              }
-                            }
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF0D6EFD),
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            "Recargar",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -800,37 +816,9 @@ class _PagosPageState extends State<PagosPage> {
     );
   }
 
-  // Registra la recarga en la lista persistente de movimientos
-  Future<void> _guardarMovimientoRecarga(
-    double montoRecargado,
-    String tipoTransferencia,
-    String fechaHora,
-    String codigo,
-  ) async {
-    final prefs = await SharedPreferences.getInstance();
-    final user = FirebaseAuth.instance.currentUser;
-    final String? keyMovs = user != null ? 'movimientos_${user.uid}' : null;
-    final List<String> data = keyMovs != null
-        ? (prefs.getStringList(keyMovs) ?? [])
-        : <String>[];
-
-    final movimiento = {
-      'tipo': 'recarga',
-      'monto': montoRecargado,
-      'metodo': tipoTransferencia,
-      'referencia': codigo,
-      'fecha': fechaHora,
-      'codigo': codigo,
-      'cliente': _nombreCliente ?? 'Cliente',
-    };
-
-    data.insert(0, jsonEncode(movimiento));
-    if (keyMovs != null) {
-      await prefs.setStringList(keyMovs, data);
-    }
-  }
-
-  // Carga todos los movimientos guardados para la vista previa de Pagos
+  // ===============================
+  // MOVIMIENTOS (Preview desde API)
+  // ===============================
   Future<List<Map<String, dynamic>>> _cargarMovimientosPreview() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -842,8 +830,7 @@ class _PagosPageState extends State<PagosPage> {
       }
 
       final token = rawToken.trim();
-      final uri = Uri.parse(
-          'https://services.fintbot.pe/api/bubblesplash/wallet/movimientos/');
+      final uri = Uri.parse('https://services.fintbot.pe/api/bubblesplash/wallet/movimientos/');
 
       http.Response response = await http.get(
         uri,
@@ -854,7 +841,6 @@ class _PagosPageState extends State<PagosPage> {
         },
       );
 
-      // Si el token expiró (401), intentamos refrescar y reintentar una vez
       if (response.statusCode == 401 && await AuthService.refreshToken()) {
         final newToken = prefs.getString('access_token')?.trim();
         if (newToken != null && newToken.isNotEmpty) {
@@ -875,23 +861,17 @@ class _PagosPageState extends State<PagosPage> {
       }
 
       if (response.statusCode == 200) {
-        final List<dynamic> data =
-            jsonDecode(response.body) as List<dynamic>;
+        final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
 
         return data.whereType<Map<String, dynamic>>().map((item) {
-          final String rawType =
-              (item['wmv_txt_type'] ?? '').toString();
-          final String tipo =
-              rawType.toUpperCase() == 'RECARGA' ? 'recarga' : 'movimiento';
+          final String rawType = (item['wmv_txt_type'] ?? '').toString();
+          final String tipo = rawType.toUpperCase() == 'RECARGA' ? 'recarga' : 'movimiento';
 
-          final String amountStr =
-              (item['wmv_de_amount'] ?? '0').toString();
+          final String amountStr = (item['wmv_de_amount'] ?? '0').toString();
           final double monto = double.tryParse(amountStr) ?? 0.0;
 
-          final String descripcion =
-              (item['wmv_txt_description'] ?? '').toString();
-          final String fechaIso =
-              (item['timestamp_datecreate'] ?? '').toString();
+          final String descripcion = (item['wmv_txt_description'] ?? '').toString();
+          final String fechaIso = (item['timestamp_datecreate'] ?? '').toString();
 
           String fecha = fechaIso;
           if (fechaIso.contains('T')) {
@@ -915,8 +895,7 @@ class _PagosPageState extends State<PagosPage> {
           };
         }).toList();
       } else {
-        debugPrint(
-            'Error al cargar movimientos (preview): ${response.statusCode} ${response.body}');
+        debugPrint('Error al cargar movimientos (preview): ${response.statusCode} ${response.body}');
         return [];
       }
     } catch (e) {
@@ -925,6 +904,9 @@ class _PagosPageState extends State<PagosPage> {
     }
   }
 
+  // ===============================
+  // RECARGA BACKEND (misma lógica, UI premium)
+  // ===============================
   Future<void> _realizarRecargaBackend(
     double montoSeleccionado,
     String tipoTransferencia,
@@ -935,13 +917,11 @@ class _PagosPageState extends State<PagosPage> {
       final rawToken = prefs.getString('access_token');
 
       if (rawToken == null || rawToken.trim().isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-                'No hay access_token. Inicia sesión nuevamente para recargar.'),
-            backgroundColor: Colors.red.shade400,
-          ),
+        await _showPremiumModal(
+          title: 'Sesión requerida',
+          message: 'No hay access_token. Inicia sesión nuevamente para recargar.',
+          icon: Icons.lock_rounded,
+          accent: const Color(0xFFE80A5D),
         );
         return;
       }
@@ -954,17 +934,14 @@ class _PagosPageState extends State<PagosPage> {
       } else if (tipoTransferencia == 'Transferencia Bancaria') {
         transferCode = 'TRANSFERENCIA_BANCARIA';
       } else {
-        if (metodoOtraBilletera == 'Yape') {
-          transferCode = 'YAPE';
-        } else if (metodoOtraBilletera == 'Plin') {
-          transferCode = 'PLIN';
-        } else {
-          transferCode = 'OTRA_BILLETERA';
-        }
+        transferCode = (metodoOtraBilletera == 'Yape')
+            ? 'YAPE'
+            : (metodoOtraBilletera == 'Plin')
+                ? 'PLIN'
+                : 'OTRA_BILLETERA';
       }
 
-        final uri = Uri.parse(
-          'https://services.fintbot.pe/api/bubblesplash/wallet/recarga/');
+      final uri = Uri.parse('https://services.fintbot.pe/api/bubblesplash/wallet/recarga/');
 
       final body = jsonEncode({
         'wmv_de_amount': montoSeleccionado.toStringAsFixed(2),
@@ -981,7 +958,6 @@ class _PagosPageState extends State<PagosPage> {
         body: body,
       );
 
-      // Si el token expiró (401), intentamos refrescar y reintentar una vez
       if (response.statusCode == 401 && await AuthService.refreshToken()) {
         final newToken = prefs.getString('access_token')?.trim();
         if (newToken != null && newToken.isNotEmpty) {
@@ -998,37 +974,28 @@ class _PagosPageState extends State<PagosPage> {
       }
 
       if (response.statusCode == 401) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-                'Tu sesión ha expirado. Inicia sesión nuevamente para recargar.'),
-            backgroundColor: Colors.red.shade400,
-          ),
+        await _showPremiumModal(
+          title: 'Sesión expirada',
+          message: 'Tu sesión ha expirado. Inicia sesión nuevamente para recargar.',
+          icon: Icons.schedule_rounded,
+          accent: const Color(0xFFE80A5D),
         );
         return;
       }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final Map<String, dynamic> data =
-            jsonDecode(response.body) as Map<String, dynamic>;
-
+        final Map<String, dynamic> data = jsonDecode(response.body) as Map<String, dynamic>;
         final wallet = data['wallet'] as Map<String, dynamic>?;
         final movement = data['movement'] as Map<String, dynamic>?;
 
         double nuevoSaldo = saldoActual;
         if (wallet != null) {
-          final balanceStr =
-              (wallet['wal_de_balance'] ?? '0').toString();
+          final balanceStr = (wallet['wal_de_balance'] ?? '0').toString();
           nuevoSaldo = double.tryParse(balanceStr) ?? nuevoSaldo;
         }
 
-        String metodoPagoUi;
-        if (tipoTransferencia == 'Otra billetera') {
-          metodoPagoUi = 'Otra billetera ($metodoOtraBilletera)';
-        } else {
-          metodoPagoUi = tipoTransferencia;
-        }
+        String metodoPagoUi =
+            (tipoTransferencia == 'Otra billetera') ? 'Otra billetera ($metodoOtraBilletera)' : tipoTransferencia;
 
         String fecha = '';
         String hora = '';
@@ -1036,22 +1003,18 @@ class _PagosPageState extends State<PagosPage> {
         double montoRecibido = montoSeleccionado;
 
         if (movement != null) {
-          final amountStr =
-              (movement['wmv_de_amount'] ?? '0').toString();
+          final amountStr = (movement['wmv_de_amount'] ?? '0').toString();
           montoRecibido = double.tryParse(amountStr) ?? montoRecibido;
 
           final String id = (movement['wmv_int_id'] ?? '').toString();
           idTransaccion = 'MOV$id';
 
-          final String fechaIso =
-              (movement['timestamp_datecreate'] ?? '').toString();
+          final String fechaIso = (movement['timestamp_datecreate'] ?? '').toString();
           if (fechaIso.isNotEmpty) {
             try {
               final dt = DateTime.parse(fechaIso);
-              fecha =
-                  '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-              hora =
-                  '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+              fecha = '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+              hora = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
             } catch (_) {
               fecha = fechaIso;
               hora = '';
@@ -1060,9 +1023,7 @@ class _PagosPageState extends State<PagosPage> {
         }
 
         if (mounted) {
-          setState(() {
-            saldoActual = nuevoSaldo;
-          });
+          setState(() => saldoActual = nuevoSaldo);
         }
 
         if (mounted) {
@@ -1072,32 +1033,30 @@ class _PagosPageState extends State<PagosPage> {
             metodoPagoUi,
             fecha,
             hora,
-            idTransaccion.isEmpty
-                ? 'REC${DateTime.now().millisecondsSinceEpoch}'
-                : idTransaccion,
+            idTransaccion.isEmpty ? 'REC${DateTime.now().millisecondsSinceEpoch}' : idTransaccion,
           );
         }
       } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                'Error al realizar recarga: ${response.statusCode}'),
-            backgroundColor: Colors.red.shade400,
-          ),
+        await _showPremiumModal(
+          title: 'No se pudo recargar',
+          message: 'Error al realizar recarga (${response.statusCode}).',
+          icon: Icons.receipt_long_rounded,
+          accent: const Color(0xFFE53935),
         );
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al realizar recarga: $e'),
-          backgroundColor: Colors.red.shade400,
-        ),
+      await _showPremiumModal(
+        title: 'Error',
+        message: 'Error al realizar recarga: $e',
+        icon: Icons.error_rounded,
+        accent: const Color(0xFFE53935),
       );
     }
   }
 
+  // ===============================
+  // POPUP RECARGA EXITOSA (tu UI, solo mejoré bordes/espacios)
+  // ===============================
   Future<void> _mostrarPopupRecargaExitosa(
     BuildContext context,
     double montoRecargado,
@@ -1108,7 +1067,6 @@ class _PagosPageState extends State<PagosPage> {
   ) async {
     const int puntosGanados = 5;
 
-    // Actualiza los puntos acumulados por recarga por usuario (local)
     final prefs = await SharedPreferences.getInstance();
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -1122,11 +1080,8 @@ class _PagosPageState extends State<PagosPage> {
       barrierDismissible: false,
       builder: (_) {
         return Dialog(
-          insetPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1138,28 +1093,25 @@ class _PagosPageState extends State<PagosPage> {
                     margin: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: Colors.black12),
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Franja celeste superior tipo boleta
                         Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           decoration: const BoxDecoration(
                             color: Color(0xFFE3F2FD),
                             borderRadius: BorderRadius.only(
-                              topLeft: Radius.circular(16),
-                              topRight: Radius.circular(16),
+                              topLeft: Radius.circular(18),
+                              topRight: Radius.circular(18),
                             ),
                           ),
                           child: Row(
                             children: const [
-                              Icon(Icons.receipt_long,
-                                  color: Colors.black87),
+                              Icon(Icons.receipt_long, color: Colors.black87),
                               SizedBox(width: 8),
                               Text(
                                 "Comprobante de recarga",
@@ -1172,7 +1124,6 @@ class _PagosPageState extends State<PagosPage> {
                             ],
                           ),
                         ),
-                        // Datos de la empresa y cliente debajo del título
                         Padding(
                           padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
                           child: Row(
@@ -1184,14 +1135,9 @@ class _PagosPageState extends State<PagosPage> {
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   color: const Color(0xFFE3F2FD),
-                                  border: Border.all(
-                                    color: Colors.black12,
-                                  ),
+                                  border: Border.all(color: Colors.black12),
                                 ),
-                                child: const Icon(
-                                  Icons.storefront,
-                                  color: Colors.black87,
-                                ),
+                                child: const Icon(Icons.storefront, color: Colors.black87),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
@@ -1209,18 +1155,12 @@ class _PagosPageState extends State<PagosPage> {
                                     const SizedBox(height: 2),
                                     Text(
                                       _direccionEmpresa,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.black87,
-                                      ),
+                                      style: const TextStyle(fontSize: 12, color: Colors.black87),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
                                       "Contacto: $_telefonoContacto",
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.black87,
-                                      ),
+                                      style: const TextStyle(fontSize: 12, color: Colors.black87),
                                     ),
                                   ],
                                 ),
@@ -1229,97 +1169,54 @@ class _PagosPageState extends State<PagosPage> {
                           ),
                         ),
                         const Divider(height: 1, color: Colors.black12),
-
                         const SizedBox(height: 12),
-                        const Icon(Icons.check_circle,
-                            size: 48, color: Colors.green),
+                        const Icon(Icons.check_circle, size: 48, color: Colors.green),
                         const SizedBox(height: 8),
                         const Text(
                           "¡Recarga exitosa!",
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 4),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 16),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: Text(
                             "Tu recarga se ha procesado correctamente.",
-                            style: TextStyle(
-                              color: Colors.black54,
-                              fontSize: 13,
-                            ),
+                            style: TextStyle(color: Colors.black.withOpacity(0.55), fontSize: 13, fontWeight: FontWeight.w600),
                             textAlign: TextAlign.center,
                           ),
                         ),
-
                         const SizedBox(height: 16),
                         const Divider(height: 1, color: Colors.black12),
-
-                        // --- MONTO RECARGADO ---
                         Padding(
                           padding: const EdgeInsets.only(top: 12),
-                          child: Text(
-                            "Monto recargado",
-                            style: TextStyle(
-                              color: Colors.grey[800],
-                              fontSize: 14,
-                            ),
-                          ),
+                          child: Text("Monto recargado", style: TextStyle(color: Colors.grey[800], fontSize: 14)),
                         ),
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
                           child: Text(
                             "S/ ${montoRecargado.toStringAsFixed(2)}",
-                            style: const TextStyle(
-                              color: Colors.black,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: const TextStyle(color: Colors.black, fontSize: 24, fontWeight: FontWeight.bold),
                           ),
                         ),
-
                         const SizedBox(height: 8),
                         const Divider(height: 1, color: Colors.black12),
-
-                        // --- DETALLES ---
                         const SizedBox(height: 10),
-                        const Text(
-                          "Detalles del comprobante",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black,
-                          ),
-                        ),
+                        const Text("Detalles del comprobante", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
                         const SizedBox(height: 6),
-                        _buildDetailRow(
-                            Icons.tag, "ID transacción", idTransaccion),
-                        _buildDetailRow(
-                            Icons.credit_card,
-                            "Método de pago",
-                            tipoTransferencia),
-                        _buildDetailRow(
-                            Icons.calendar_today, "Fecha", fecha),
+                        _buildDetailRow(Icons.tag, "ID transacción", idTransaccion),
+                        _buildDetailRow(Icons.credit_card, "Método de pago", tipoTransferencia),
+                        _buildDetailRow(Icons.calendar_today, "Fecha", fecha),
                         _buildDetailRow(Icons.access_time, "Hora", hora),
-                        _buildDetailRow(
-                          Icons.person,
-                          "Cliente",
-                          _nombreCliente ?? 'Cliente'),
-
+                        _buildDetailRow(Icons.person, "Cliente", _nombreCliente ?? 'Cliente'),
                         const SizedBox(height: 10),
 
-                        // --- PUNTOS GANADOS ---
                         Container(
-                          margin: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 8),
+                          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                            border:
-                                Border.all(color: Colors.black12, width: 1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.black12, width: 1),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1327,28 +1224,19 @@ class _PagosPageState extends State<PagosPage> {
                               const Expanded(
                                 child: Text(
                                   "Puntos ganados\n¡Sigue acumulando!",
-                                  style: TextStyle(
-                                    color: Colors.black,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                  style: TextStyle(color: Colors.black, fontWeight: FontWeight.w700),
                                 ),
                               ),
                               Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border:
-                                      Border.all(color: Colors.black45),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.black45),
                                 ),
                                 child: Text(
                                   "+ $puntosGanados",
-                                  style: const TextStyle(
-                                    color: Colors.black,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
+                                  style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
                                 ),
                               ),
                             ],
@@ -1362,12 +1250,9 @@ class _PagosPageState extends State<PagosPage> {
 
                 // BOTONES (NO ENTRAN EN LA CAPTURA)
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 5),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      // --- Botón Descargar ---
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: () async {
@@ -1381,85 +1266,52 @@ class _PagosPageState extends State<PagosPage> {
                               puntosGanados,
                             );
                           },
-                          icon: const Icon(Icons.download,
-                              color: Colors.black),
-                          label: const Text(
-                            "Descargar",
-                            style: TextStyle(color: Colors.black),
-                          ),
+                          icon: const Icon(Icons.download, color: Colors.black),
+                          label: const Text("Descargar", style: TextStyle(color: Colors.black)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.white,
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
                             elevation: 0,
-                            side:
-                                const BorderSide(color: Colors.black12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            side: const BorderSide(color: Colors.black12),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 15),
-
-                      // --- Botón Compartir ---
+                      const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: () {
-                            _mostrarPopupCompartir(context);
-                          },
-                          icon:
-                              const Icon(Icons.share, color: Colors.black),
-                          label: const Text(
-                            "Compartir",
-                            style: TextStyle(color: Colors.black),
-                          ),
+                          onPressed: () => _mostrarPopupCompartir(context),
+                          icon: const Icon(Icons.share, color: Colors.black),
+                          label: const Text("Compartir", style: TextStyle(color: Colors.black)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.white,
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
                             elevation: 0,
-                            side:
-                                const BorderSide(color: Colors.black12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            side: const BorderSide(color: Colors.black12),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 8),
-
-                // --- BOTÓN REGRESAR ---
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                   child: SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: () => Navigator.pop(context),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
                         elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         side: const BorderSide(color: Colors.black12),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                       child: const Text(
                         "Regresar",
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
+                        style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16),
                       ),
                     ),
                   ),
@@ -1509,16 +1361,14 @@ class _PagosPageState extends State<PagosPage> {
   ) async {
     final pdf = pw.Document();
     try {
-      // Captura la imagen del comprobante visual
       final boundary = _comprobanteKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
       pw.Widget comprobanteWidget;
       Uint8List? pngBytes;
+
       if (boundary != null) {
         final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
         final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-        if (byteData != null) {
-          pngBytes = byteData.buffer.asUint8List();
-        }
+        if (byteData != null) pngBytes = byteData.buffer.asUint8List();
       }
 
       if (pngBytes != null) {
@@ -1531,9 +1381,10 @@ class _PagosPageState extends State<PagosPage> {
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             pw.Center(
-              child: pw.Text("Comprobante de Recarga Exitosa",
-                  style: pw.TextStyle(
-                      fontSize: 20, fontWeight: pw.FontWeight.bold)),
+              child: pw.Text(
+                "Comprobante de Recarga Exitosa",
+                style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+              ),
             ),
             pw.SizedBox(height: 20),
             pw.Text("Monto Recargado: S/ ${monto.toStringAsFixed(2)}"),
@@ -1545,9 +1396,10 @@ class _PagosPageState extends State<PagosPage> {
             pw.Text("Puntos Ganados: +$puntos"),
             pw.SizedBox(height: 20),
             pw.Center(
-              child: pw.Text("¡Gracias por tu recarga!",
-                  style: pw.TextStyle(
-                      fontStyle: pw.FontStyle.italic, fontSize: 14)),
+              child: pw.Text(
+                "¡Gracias por tu recarga!",
+                style: pw.TextStyle(fontStyle: pw.FontStyle.italic, fontSize: 14),
+              ),
             ),
           ],
         );
@@ -1568,56 +1420,40 @@ class _PagosPageState extends State<PagosPage> {
       final file = File("${dir.path}/comprobante_recarga.pdf");
       await file.writeAsBytes(await pdf.save());
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text("PDF guardado correctamente en la app. Abriendo archivo..."),
-          backgroundColor: Colors.green.shade600,
-        ),
+      await _showPremiumModal(
+        title: 'PDF guardado',
+        message: 'Se guardó el comprobante en la app. Intentaré abrirlo ahora.',
+        icon: Icons.picture_as_pdf_rounded,
+        accent: const Color(0xFF2E7D32),
+        buttonText: 'Ok',
       );
 
-      // Abrir el archivo PDF automáticamente para visualizarlo
       try {
         final result = await OpenFile.open(file.path);
         if (result.type != ResultType.done) {
-          await showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text("No se pudo abrir el PDF"),
-              content: const Text(
-                "El comprobante se guardó correctamente, pero no se pudo abrir automáticamente.\n\nPuedes buscarlo en la carpeta de documentos de tu dispositivo: comprobante_recarga.pdf"
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text("Aceptar"),
-                ),
-              ],
-            ),
+          await _showPremiumModal(
+            title: 'No se pudo abrir',
+            message:
+                'Se guardó correctamente, pero no se pudo abrir automáticamente.\n\nBusca: comprobante_recarga.pdf',
+            icon: Icons.info_rounded,
+            accent: const Color(0xFFFFA726),
           );
         }
       } catch (e) {
-        await showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text("No se pudo abrir el PDF"),
-            content: Text(
-              "El comprobante se guardó correctamente, pero ocurrió un error al intentar abrirlo automáticamente.\n\nPuedes buscarlo en la carpeta de documentos de tu dispositivo: comprobante_recarga.pdf\n\nError: $e"
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text("Aceptar"),
-              ),
-            ],
-          ),
+        await _showPremiumModal(
+          title: 'No se pudo abrir',
+          message:
+              'Se guardó correctamente, pero falló al abrir.\n\nBusca: comprobante_recarga.pdf\n\nError: $e',
+          icon: Icons.error_rounded,
+          accent: const Color(0xFFE53935),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Error al generar PDF: $e"),
-          backgroundColor: Colors.red.shade400,
-        ),
+      await _showPremiumModal(
+        title: 'Error al generar PDF',
+        message: '$e',
+        icon: Icons.error_rounded,
+        accent: const Color(0xFFE53935),
       );
     }
   }
@@ -1635,10 +1471,7 @@ class _PagosPageState extends State<PagosPage> {
             children: [
               const Text(
                 "Compartir comprobante de pago",
-                style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: Colors.black87),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),
@@ -1646,17 +1479,11 @@ class _PagosPageState extends State<PagosPage> {
                 icon: const Icon(Icons.share, color: Colors.white),
                 label: const Text(
                   "Compartir",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0D6EFD),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  backgroundColor: accentBlue,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 14),
                 ),
                 onPressed: () async {
@@ -1669,11 +1496,7 @@ class _PagosPageState extends State<PagosPage> {
                 onPressed: () => Navigator.pop(context),
                 child: const Text(
                   "Cancelar",
-                  style: TextStyle(
-                    color: Colors.redAccent,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
+                  style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16),
                 ),
               ),
             ],
@@ -1683,17 +1506,15 @@ class _PagosPageState extends State<PagosPage> {
     );
   }
 
-  // Captura el comprobante mostrado en el popup de recarga y lo comparte como imagen
   Future<void> _capturarYCompartirComprobante() async {
     try {
       final boundary = _comprobanteKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
       if (boundary == null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('No se pudo capturar el comprobante.'),
-            backgroundColor: Colors.red.shade400,
-          ),
+        await _showPremiumModal(
+          title: 'No se pudo capturar',
+          message: 'No se pudo capturar el comprobante.',
+          icon: Icons.warning_amber_rounded,
+          accent: const Color(0xFFFFA726),
         );
         return;
       }
@@ -1707,128 +1528,497 @@ class _PagosPageState extends State<PagosPage> {
       final file = File('${dir.path}/comprobante_recarga_${DateTime.now().millisecondsSinceEpoch}.png');
       await file.writeAsBytes(pngBytes);
 
-      await Share.shareXFiles([
-        XFile(file.path),
-      ], text: 'Comprobante de recarga');
+      await Share.shareXFiles([XFile(file.path)], text: 'Comprobante de recarga');
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al compartir comprobante: $e'),
-          backgroundColor: Colors.red.shade400,
-        ),
+      await _showPremiumModal(
+        title: 'Error al compartir',
+        message: '$e',
+        icon: Icons.error_rounded,
+        accent: const Color(0xFFE53935),
       );
     }
   }
 }
 
-// --- WIDGET DE ICONO DE COMPARTIR ---
-class _IconoCompartir extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
+// ===============================
+// ✅ MOVIMIENTO ITEM PREMIUM
+// ===============================
+class MovimientoItemPremium extends StatelessWidget {
+  final Map<String, dynamic> movimientoRaw;
 
-  const _IconoCompartir({required this.icon, required this.label, required this.onTap});
+  const MovimientoItemPremium({super.key, required this.movimientoRaw});
+
+  double _asDouble(dynamic v) {
+    if (v is double) return v;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v?.toString() ?? '') ?? 0.0;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final tipo = (movimientoRaw['tipo'] ?? '').toString(); // recarga | movimiento
+    final fecha = (movimientoRaw['fecha'] ?? '').toString();
+    final monto = _asDouble(movimientoRaw['monto']);
+    final isRecarga = tipo == 'recarga';
+
+    final title = isRecarga ? 'RECARGA' : 'COMPRA';
+    final icon = isRecarga ? Ionicons.arrow_down_circle_outline : Ionicons.arrow_up_circle_outline;
+    final iconBg = isRecarga ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE);
+    final iconColor = isRecarga ? const Color(0xFF2E7D32) : const Color(0xFFC62828);
+    final sign = isRecarga ? '+' : '-';
+
     return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(30),
-      child: Column(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () async {
+        if (isRecarga) {
+          final movimiento = Movimiento(
+            titulo: title,
+            monto: monto,
+            tipo: tipo,
+            fecha: fecha,
+          );
+          Navigator.of(context).push(
+            PageRouteBuilder(
+              opaque: false,
+              pageBuilder: (context, animation, secondaryAnimation) => FadeTransition(
+                opacity: animation,
+                child: DetalleMovimientoPage(
+                  movimiento: movimiento,
+                  datosAdicionales: movimientoRaw,
+                ),
+              ),
+            ),
+          );
+        } else {
+          // Mantengo tu boleta de compra simple (si quieres la hacemos igual de pro + PDF/Share)
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) {
+              final String metodo = (movimientoRaw['metodo'] ?? 'Compra').toString();
+              final String id = (movimientoRaw['codigo'] ?? '').toString();
+              final String cliente = (movimientoRaw['cliente'] ?? 'Cliente').toString();
+
+              return Dialog(
+                insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: const [
+                            Icon(Icons.receipt_long_rounded),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Comprobante de compra',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.03),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.black.withOpacity(0.06)),
+                          ),
+                          child: Column(
+                            children: [
+                              Text('S/ ${monto.toStringAsFixed(2)}',
+                                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+                              const SizedBox(height: 6),
+                              Text(isRecarga ? 'Recarga' : 'Compra',
+                                  style: TextStyle(color: Colors.black.withOpacity(0.55), fontWeight: FontWeight.w700)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _miniRow('ID', id),
+                        _miniRow('Método', metodo),
+                        _miniRow('Fecha', fecha),
+                        _miniRow('Cliente', cliente),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              side: BorderSide(color: Colors.black.withOpacity(0.08)),
+                            ),
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Regresar',
+                                style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900)),
+                          ),
+                        )
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        }
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: iconBg,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: iconColor),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 2),
+                  Text(
+                    fecha,
+                    style: TextStyle(color: Colors.black.withOpacity(0.55), fontWeight: FontWeight.w600, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$sign S/ ${monto.toStringAsFixed(2)}',
+              style: TextStyle(fontWeight: FontWeight.w900, color: iconColor, fontSize: 14),
+            ),
+            const SizedBox(width: 6),
+            Icon(Ionicons.chevron_forward_outline, color: Colors.black.withOpacity(0.35), size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _miniRow(String a, String b) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
         children: [
-          CircleAvatar(
-            backgroundColor: Colors.grey.shade200,
-            radius: 28,
-            child: Icon(icon, size: 30, color: const Color(0xFFE80A5D)),
+          SizedBox(
+            width: 80,
+            child: Text(a, style: TextStyle(color: Colors.black.withOpacity(0.55), fontWeight: FontWeight.w700)),
           ),
-          const SizedBox(height: 6),
-          Text(label, style: const TextStyle(fontSize: 12)),
+          Expanded(child: Text(b, style: const TextStyle(fontWeight: FontWeight.w800))),
         ],
       ),
     );
   }
 }
 
-class MovimientoItem extends StatelessWidget {
-  final Map<String, dynamic> movimientoRaw;
+// ===============================
+// ✅ COMPONENTES PREMIUM UI
+// ===============================
+class _GlassCard extends StatelessWidget {
+  final Widget child;
+  const _GlassCard({required this.child});
 
-  const MovimientoItem({
-    super.key,
-    required this.movimientoRaw,
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.20)),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _PremiumCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsets padding;
+  const _PremiumCard({required this.child, this.padding = const EdgeInsets.all(14)});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.black.withOpacity(0.05)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _ActionCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _ActionCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final tipo = (movimientoRaw['tipo'] ?? '').toString();
-    final fecha = (movimientoRaw['fecha'] ?? '').toString();
-    final montoNum = (movimientoRaw['monto'] is num)
-        ? (movimientoRaw['monto'] as num).toDouble()
-        : double.tryParse(movimientoRaw['monto'].toString()) ?? 0.0;
-    final prefijo = tipo == 'recarga' ? '+ ' : '- ';
-    final tituloBase = tipo == 'recarga' ? 'RECARGA' : 'GASTO';
-    final color = tipo == 'recarga' ? Colors.green : Colors.black87;
-
-    return InkWell(
-      onTap: () {
-        final movimiento = Movimiento(
-          titulo: tituloBase,
-          monto: montoNum,
-          tipo: tipo,
-          fecha: fecha,
-        );
-
-        Navigator.of(context).push(
-          PageRouteBuilder(
-            opaque: false,
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                FadeTransition(
-              opacity: animation,
-              child: DetalleMovimientoPage(
-                movimiento: movimiento,
-                datosAdicionales: movimientoRaw,
+    return _PremiumCard(
+      padding: const EdgeInsets.all(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.04),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: _PagosPageState.mainColor),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: TextStyle(color: Colors.black.withOpacity(0.55), fontWeight: FontWeight.w600)),
+                ],
               ),
             ),
-          ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: Colors.black12)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  tituloBase,
-                  style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87),
-                ),
-                const SizedBox(height: 3),
-                Text(fecha,
-                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
-              ],
-            ),
-            Row(
-              children: [
-                Text(
-                  "S/ $prefijo${montoNum.toStringAsFixed(2)}",
-                  style: TextStyle(
-                      color: color, fontSize: 15, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(width: 6),
-                const Icon(Ionicons.chevron_forward_outline,
-                    color: Colors.grey, size: 20), // Flechita
-              ],
-            ),
+            Icon(Ionicons.chevron_forward_outline, color: Colors.black.withOpacity(0.35), size: 18),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final String trailingText;
+  final VoidCallback onTrailingTap;
+
+  const _SectionHeader({
+    required this.title,
+    required this.trailingText,
+    required this.onTrailingTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+        const Spacer(),
+        TextButton(
+          onPressed: onTrailingTap,
+          child: Text(
+            trailingText,
+            style: TextStyle(color: _PagosPageState.mainColor, fontWeight: FontWeight.w900),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PillButton extends StatelessWidget {
+  final String text;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _PillButton({required this.text, required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.18),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: Colors.white.withOpacity(0.20)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: Colors.white),
+            const SizedBox(width: 6),
+            Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoBox extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  final Color accent;
+
+  const _InfoBox({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withOpacity(0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+                const SizedBox(height: 4),
+                Text(
+                  message,
+                  style: TextStyle(color: Colors.black.withOpacity(0.65), fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SegmentedChips extends StatelessWidget {
+  final String value;
+  final List<String> options;
+  final ValueChanged<String> onChanged;
+
+  const _SegmentedChips({
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: options.map((opt) {
+        final selected = value == opt;
+        return ChoiceChip(
+          label: Text(opt),
+          selected: selected,
+          selectedColor: _PagosPageState.accentBlue,
+          backgroundColor: Colors.black.withOpacity(0.06),
+          labelStyle: TextStyle(
+            color: selected ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.w900,
+            fontSize: 12,
+          ),
+          onSelected: (_) => onChanged(opt),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _ShimmerLine extends StatelessWidget {
+  const _ShimmerLine({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      width: 140,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.20),
+        borderRadius: BorderRadius.circular(10),
+      ),
+    );
+  }
+}
+
+class _SkeletonMovimiento extends StatelessWidget {
+  const _SkeletonMovimiento();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              children: [
+                Container(height: 12, decoration: BoxDecoration(color: Colors.black.withOpacity(0.06), borderRadius: BorderRadius.circular(8))),
+                const SizedBox(height: 8),
+                Container(height: 10, width: 140, alignment: Alignment.centerLeft,
+                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.05), borderRadius: BorderRadius.circular(8))),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            height: 12,
+            width: 90,
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ],
       ),
     );
   }
