@@ -9,6 +9,7 @@ import 'CartPage.dart';
 import 'package:bubblesplash/utils/route_observer.dart';
 import 'package:bubblesplash/services/auth_service.dart';
 import 'package:bubblesplash/constants/backend_config.dart';
+import '../../constants/api_constants.dart';
 
 import 'package:bubblesplash/models/category.dart';
 import 'package:bubblesplash/models/product.dart';
@@ -89,7 +90,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      'BUBBLE TEA',
+                      ' SPLASH BUBBLE',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1126,28 +1127,34 @@ class _PremiumProductGridTile extends StatelessWidget {
 
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(15),
       child: InkWell(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(15),
         onTap: onAdd,
         child: Container(
+          constraints: const BoxConstraints(
+            minHeight: 120,
+            maxHeight: 155,
+          ),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(15),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x14000000),
-                blurRadius: 16,
-                offset: Offset(0, 10),
+                blurRadius: 10,
+                offset: Offset(0, 6),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(15),
             child: Stack(
               children: [
+                // Imagen de fondo completa
                 Positioned.fill(
                   child: _PremiumGridImage(pathOrUrl: product.image),
                 ),
+                // Overlay degradado
                 Positioned.fill(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -1162,14 +1169,15 @@ class _PremiumProductGridTile extends StatelessWidget {
                     ),
                   ),
                 ),
+                // Descuento
                 if (hasDiscount)
                   Positioned(
-                    top: 12,
-                    left: 12,
+                    top: 10,
+                    left: 10,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
-                        vertical: 6,
+                        vertical: 5,
                       ),
                       decoration: BoxDecoration(
                         color: const Color(0xFF22C55E),
@@ -1177,8 +1185,8 @@ class _PremiumProductGridTile extends StatelessWidget {
                         boxShadow: const [
                           BoxShadow(
                             color: Color(0x22000000),
-                            blurRadius: 10,
-                            offset: Offset(0, 6),
+                            blurRadius: 8,
+                            offset: Offset(0, 4),
                           ),
                         ],
                       ),
@@ -1192,64 +1200,72 @@ class _PremiumProductGridTile extends StatelessWidget {
                       ),
                     ),
                   ),
+                // Info y botón, compactos y responsivos
                 Positioned(
-                  left: 14,
-                  right: 14,
-                  bottom: 56,
+                  left: 12,
+                  right: 12,
+                  bottom: 12,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        product.name.toUpperCase(),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.3,
-                          shadows: [
-                            Shadow(color: Colors.black54, blurRadius: 10),
-                          ],
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          product.name.toUpperCase(),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.3,
+                            shadows: [
+                              Shadow(color: Colors.black54, blurRadius: 10),
+                            ],
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 7),
                       Row(
                         children: [
-                          Text(
-                            'S/. ${precioFinal.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w900,
-                              shadows: [
-                                Shadow(color: Colors.black54, blurRadius: 10),
-                              ],
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              'S/. ${precioFinal.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                shadows: [
+                                  Shadow(color: Colors.black54, blurRadius: 10),
+                                ],
+                              ),
                             ),
                           ),
                           if (hasDiscount) ...[
-                            const SizedBox(width: 10),
-                            Text(
-                              'S/. ${precioOriginal.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                decoration: TextDecoration.lineThrough,
-                                decorationThickness: 2,
+                            const SizedBox(width: 7),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                'S/. ${precioOriginal.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  decoration: TextDecoration.lineThrough,
+                                  decorationThickness: 2,
+                                ),
                               ),
                             ),
                           ],
                         ],
                       ),
+                      const SizedBox(height: 7),
+                      _GlassAddButton(onTap: onAdd),
                     ],
                   ),
-                ),
-                Positioned(
-                  left: 16,
-                  right: 16,
-                  bottom: 14,
-                  child: _GlassAddButton(onTap: onAdd),
                 ),
               ],
             ),
@@ -1539,9 +1555,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       }
 
       final token = rawToken.trim();
-      final uri = Uri.parse(
-        'https://services.fintbot.pe/api/bubblesplash/productos/$id/',
-      );
+      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/productos/$id/');
 
       http.Response response = await http.get(
         uri,
@@ -1611,9 +1625,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       }
 
       final token = rawToken.trim();
-      final uri = Uri.parse(
-        'https://services.fintbot.pe/api/bubblesplash/toppings/',
-      );
+      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/toppings/');
 
       http.Response response = await http.get(
         uri,
@@ -1689,9 +1701,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       }
 
       final token = rawToken.trim();
-      final uri = Uri.parse(
-        'https://services.fintbot.pe/api/bubblesplash/productos-sizes/',
-      );
+      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/productos-sizes/');
 
       http.Response response = await http.get(
         uri,

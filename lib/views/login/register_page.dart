@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../constants/api_constants.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({Key? key}) : super(key: key);
@@ -161,7 +162,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       CheckboxListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text(
-                          'Acepto el uso de mis datos personales para Bubble Tea.',
+                          'Acepto el uso de mis datos personales para Splash Bubble.',
                           style: TextStyle(fontSize: 13),
                         ),
                         value: aceptaDatos,
@@ -267,7 +268,7 @@ class _RegisterPageState extends State<RegisterPage> {
       return;
     }
     setState(() => _loading = true);
-    final url = Uri.parse('https://services.fintbot.pe/api/auth/users/');
+    final url = Uri.parse(ApiConstants.baseUrl + '/auth/users/');
 
     final avatarUrl = _avatarController.text.trim().isNotEmpty
         ? _avatarController.text.trim()

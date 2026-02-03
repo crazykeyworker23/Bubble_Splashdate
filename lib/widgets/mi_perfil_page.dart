@@ -14,6 +14,8 @@ import '../services/session_manager.dart';
 import '../services/user_info_service.dart';
 import '../services/avatar_upload_service.dart';
 import '../services/auth_service.dart';
+
+import '../constants/api_constants.dart';
 import '../constants/service_code.dart';
 
 class MiPerfilPage extends StatefulWidget {
@@ -24,11 +26,16 @@ class MiPerfilPage extends StatefulWidget {
 }
 
 class _MiPerfilPageState extends State<MiPerfilPage> {
+  // --- Puntos por completar perfil ---
+  static const int puntosPerfilCompleto = 60;
+  bool _perfilCompleto = false;
+  bool _puntosOtorgados = false;
+
   static const Color _brandDark = Color(0xFF0F3D4A);
   static const Color _brandTeal = Color(0xFF128FA0);
   static const Color _bg = Color(0xFFF4FAFF);
 
-  static const String ME_URL = 'https://services.fintbot.pe/api/auth/me/';
+  static const String ME_URL = ApiConstants.baseUrl + '/auth/me/';
 
   bool _editMode = false;
   bool _loading = false;
@@ -105,6 +112,27 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
     super.dispose();
   }
 
+  // =========================
+  // ✅ PERFIL COMPLETO (CORREGIDO: método de clase, NO adentro de _saveProfile)
+  // =========================
+  bool _verificarPerfilCompleto() {
+    final full = _fullNameController.text.trim();
+    final age = _ageController.text.trim();
+    final gen = _genderController.text.trim();
+    final addr = _addressController.text.trim();
+    final occ = _occupationController.text.trim();
+    final edu = _educationLevelController.text.trim();
+
+    bool validSelect(String v) => v.isNotEmpty && v != 'Sin especificar';
+
+    return full.isNotEmpty &&
+        age.isNotEmpty &&
+        validSelect(gen) &&
+        addr.isNotEmpty &&
+        validSelect(occ) &&
+        validSelect(edu);
+  }
+
   Future<String?> _getAccessToken() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('access_token');
@@ -113,6 +141,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
   }
 
   Future<void> _loadProfile() async {
+    if (!mounted) return;
     setState(() => _loading = true);
 
     try {
@@ -169,10 +198,15 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
 
         final profile = UserProfile.fromJson(data, fcmToken: fcm);
 
+        // Para flag por usuario (evitar que quede global)
+        final userId = await UserInfoService.fetchUserId();
+        final flagKey = userId == null ? 'puntos_perfil_completo' : 'puntos_perfil_completo_$userId';
+
+        if (!mounted) return;
         setState(() {
           _profile = profile;
-          _fcmTokenController.text = profile.fcmToken;
 
+          _fcmTokenController.text = profile.fcmToken;
           _usernameController.text = profile.username;
           _fullNameController.text = profile.fullName;
           _ageController.text = profile.age ?? '';
@@ -184,6 +218,10 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
           _longitudeController.text = profile.longitude?.toString() ?? '';
           _latitudeController.text = profile.latitude?.toString() ?? '';
           _avatarUrlController.text = profile.avatarUrl ?? '';
+
+          // ✅ ahora sí refresca UI
+          _perfilCompleto = _verificarPerfilCompleto();
+          _puntosOtorgados = prefs.getBool(flagKey) ?? false;
         });
       } else {
         if (mounted) {
@@ -210,6 +248,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
 
     try {
       final DateTime parsed = DateTime.parse(birthdayStr);
+      if (!mounted) return;
       setState(() {
         _birthday = parsed;
         _birthdayController.text =
@@ -221,6 +260,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
 
+    if (!mounted) return;
     setState(() => _loading = true);
 
     try {
@@ -250,6 +290,10 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         }
         return;
       }
+
+      // ✅ flag por usuario
+      final flagKey = 'puntos_perfil_completo_$userId';
+      final String keyPuntos = 'puntos_$userId';
 
       await _updateLocationFromDevice();
 
@@ -295,15 +339,37 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         userId: userId,
       );
 
-      if (mounted) {
-        setState(() {
-          _editMode = false;
-          _profile = UserProfile.fromJson(patchBody, fcmToken: fcmValue);
-        });
+      // ✅ Recalcular estado
+      final perfilCompletoAhora = _verificarPerfilCompleto();
+      final puntosOtorgados = prefs.getBool(flagKey) ?? false;
+
+      if (!mounted) return;
+      setState(() {
+        _editMode = false;
+        _perfilCompleto = perfilCompletoAhora;
+        _puntosOtorgados = puntosOtorgados;
+      });
+
+      // ✅ Otorgar puntos SOLO 1 vez por usuario
+      if (perfilCompletoAhora && !puntosOtorgados) {
+        final int puntosActuales = prefs.getInt(keyPuntos) ?? 0;
+        await prefs.setInt(keyPuntos, puntosActuales + puntosPerfilCompleto);
+        await prefs.setBool(flagKey, true);
+
+        if (!mounted) return;
+        setState(() => _puntosOtorgados = true);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("¡Felicidades! Has completado tu perfil y ganaste 60 puntos extra.")),
+        );
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Perfil actualizado correctamente")),
         );
       }
+
+      // ✅ Re-cargar perfil real del backend (mejor que armar _profile con patchBody)
+      await _loadProfile();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -348,9 +414,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
     return InputDecoration(
       labelText: label,
       hintText: hint,
-      prefixIcon: icon == null
-          ? null
-          : Icon(icon, color: _brandTeal),
+      prefixIcon: icon == null ? null : Icon(icon, color: _brandTeal),
       filled: true,
       fillColor: Colors.white,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -415,6 +479,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
   Future<void> _pickAvatar() async {
     final XFile? picked = await _imagePicker.pickImage(source: ImageSource.gallery, imageQuality: 88);
     if (picked != null) {
+      if (!mounted) return;
       setState(() => _localAvatarFile = File(picked.path));
     }
   }
@@ -449,6 +514,24 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
               ? const Center(child: Text("No se pudo cargar el perfil"))
               : Column(
                   children: [
+                    if (!_perfilCompleto)
+                      Container(
+                        width: double.infinity,
+                        color: Colors.amber.shade100,
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 18),
+                        child: Row(
+                          children: const [
+                            Icon(Icons.info_outline, color: Colors.amber, size: 22),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                "Completa todos tus datos para ganar 60 puntos extra y acceder a todos los beneficios.",
+                                style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     _premiumHeader(),
                     Expanded(
                       child: SingleChildScrollView(
@@ -497,25 +580,27 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
                                         label: "Cumpleaños (para beneficios)",
                                         icon: Icons.event_outlined,
                                       ),
-                                      onTap: !_editMode ? null : () async {
-                                        final now = DateTime.now();
-                                        final initialDate = _birthday ?? DateTime(now.year - 18, now.month, now.day);
+                                      onTap: !_editMode
+                                          ? null
+                                          : () async {
+                                              final now = DateTime.now();
+                                              final initialDate = _birthday ?? DateTime(now.year - 18, now.month, now.day);
 
-                                        final picked = await showDatePicker(
-                                          context: context,
-                                          initialDate: initialDate,
-                                          firstDate: DateTime(1900),
-                                          lastDate: now,
-                                        );
+                                              final picked = await showDatePicker(
+                                                context: context,
+                                                initialDate: initialDate,
+                                                firstDate: DateTime(1900),
+                                                lastDate: now,
+                                              );
 
-                                        if (picked != null) {
-                                          setState(() {
-                                            _birthday = picked;
-                                            _birthdayController.text =
-                                                '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year.toString().padLeft(4, '0')}';
-                                          });
-                                        }
-                                      },
+                                              if (picked != null && mounted) {
+                                                setState(() {
+                                                  _birthday = picked;
+                                                  _birthdayController.text =
+                                                      '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year.toString().padLeft(4, '0')}';
+                                                });
+                                              }
+                                            },
                                     ),
                                     const SizedBox(height: 10),
                                     DropdownButtonFormField<String>(
@@ -577,7 +662,8 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
                                           .toList(),
                                       onChanged: !_editMode
                                           ? null
-                                          : (v) => setState(() => _occupationController.text = (v ?? _occupationOptions.first)),
+                                          : (v) => setState(
+                                              () => _occupationController.text = (v ?? _occupationOptions.first)),
                                     ),
                                     const SizedBox(height: 10),
                                     DropdownButtonFormField<String>(
@@ -593,7 +679,8 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
                                           .toList(),
                                       onChanged: !_editMode
                                           ? null
-                                          : (v) => setState(() => _educationLevelController.text = (v ?? _educationOptions.first)),
+                                          : (v) => setState(
+                                              () => _educationLevelController.text = (v ?? _educationOptions.first)),
                                     ),
                                   ],
                                 ),
@@ -685,9 +772,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: Colors.white,
-                    image: avatar != null
-                        ? DecorationImage(image: avatar, fit: BoxFit.cover)
-                        : null,
+                    image: avatar != null ? DecorationImage(image: avatar, fit: BoxFit.cover) : null,
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.20),

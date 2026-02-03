@@ -69,7 +69,7 @@ class MyApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => CartController(),
       child: MaterialApp(
-        title: 'Bubble Splash',
+        title: 'Splash Bubble',
         theme: ThemeData(
           primaryColor: kPrimaryColor,
           colorScheme: ColorScheme.fromSwatch().copyWith(

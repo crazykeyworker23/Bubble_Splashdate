@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
+import '../../constants/api_constants.dart';
 import 'package:http/http.dart' as http;
 import 'package:bubblesplash/services/auth_service.dart';
 
@@ -172,8 +173,7 @@ class _MovimientosPageState extends State<MovimientosPage> {
         debugPrint('No hay access_token para consultar movimientos (API)');
       } else {
         final token = rawToken.trim();
-        final uri = Uri.parse(
-            'https://services.fintbot.pe/api/bubblesplash/wallet/movimientos/');
+        final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/movimientos/');
 
         http.Response response = await http.get(
           uri,

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
+import '../../constants/api_constants.dart';
 import 'package:http/http.dart' as http;
 
 import '../../services/fcm_service.dart';
@@ -167,7 +169,7 @@ class _LoginPageState extends State<LoginPage> {
     required String firebaseIdToken,
     required String serviceCode,
   }) async {
-    final uri = Uri.parse('https://services.fintbot.pe/api/auth/firebase/');
+    final uri = Uri.parse(ApiConstants.baseUrl + '/auth/firebase/');
 
     final res = await http
         .post(
@@ -221,7 +223,7 @@ class _LoginPageState extends State<LoginPage> {
         throw Exception('Por favor, ingresa un email válido.');
       }
 
-      final url = Uri.parse('https://services.fintbot.pe/api/auth/login/');
+      final url = Uri.parse(ApiConstants.baseUrl + '/auth/login/');
       final body = {'username': email, 'password': password};
 
       final res = await http.post(
@@ -402,7 +404,7 @@ class _LoginPageState extends State<LoginPage> {
                       const SizedBox(height: 12),
 
                       Text(
-                        'Disfruta de BubbleSplash',
+                        'Disfruta de Splash Bubble',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 18,

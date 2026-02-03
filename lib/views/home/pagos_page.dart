@@ -13,6 +13,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
+import '../../constants/api_constants.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:bubblesplash/services/auth_service.dart';
@@ -194,8 +196,7 @@ class _PagosPageState extends State<PagosPage> {
       }
 
       final token = rawToken.trim();
-      final uri =
-          Uri.parse('https://services.fintbot.pe/api/bubblesplash/wallet/me/');
+        final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/me/');
 
       http.Response response = await http.get(
         uri,
@@ -830,7 +831,7 @@ class _PagosPageState extends State<PagosPage> {
       }
 
       final token = rawToken.trim();
-      final uri = Uri.parse('https://services.fintbot.pe/api/bubblesplash/wallet/movimientos/');
+      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/movimientos/');
 
       http.Response response = await http.get(
         uri,
@@ -941,7 +942,7 @@ class _PagosPageState extends State<PagosPage> {
                 : 'OTRA_BILLETERA';
       }
 
-      final uri = Uri.parse('https://services.fintbot.pe/api/bubblesplash/wallet/recarga/');
+      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/recarga/');
 
       final body = jsonEncode({
         'wmv_de_amount': montoSeleccionado.toStringAsFixed(2),
