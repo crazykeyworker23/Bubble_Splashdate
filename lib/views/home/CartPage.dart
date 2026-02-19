@@ -10,10 +10,13 @@ import 'dart:convert';
 class CartPage extends StatefulWidget {
   final List<Map<String, dynamic>> initialPedidos;
   final double descuento;
+  // Id opcional de la oferta/canje aplicada al pedido (ofc_int_id)
+  final int? ofcIntId;
   const CartPage({
     super.key,
     required this.initialPedidos,
     this.descuento = 0.0,
+    this.ofcIntId,
   });
 
   @override
@@ -176,9 +179,34 @@ class _CartPageState extends State<CartPage> {
     } else {
       price = _asDouble(item['price']);
     }
-    // Aplica descuento si corresponde
-    if (_descuento > 0) {
-      price = price * (1 - _descuento);
+    return price;
+  }
+
+  // Precio unitario sin aplicar el descuento global del carrito
+  double _computeUnitTotalSinDescuento(Map<String, dynamic> item) {
+    double price;
+    if (item.containsKey('basePrice') ||
+        item.containsKey('sizeExtra') ||
+        item.containsKey('iceExtra') ||
+        item.containsKey('toppingsTotal')) {
+      final base = _asDouble(item['basePrice']);
+      final sizeExtra = _asDouble(item['sizeExtra']);
+      final iceExtra = _asDouble(item['iceExtra']);
+
+      double toppingsTotal = _asDouble(item['toppingsTotal']);
+      if (toppingsTotal == 0.0) {
+        final rawToppings = item['toppings'];
+        if (rawToppings is List) {
+          toppingsTotal = rawToppings.fold<double>(0.0, (sum, t) {
+            if (t is Map) return sum + _asDouble(t['price']);
+            return sum;
+          });
+        }
+      }
+
+      price = base + sizeExtra + iceExtra + toppingsTotal;
+    } else {
+      price = _asDouble(item['price']);
     }
     return price;
   }
@@ -207,12 +235,76 @@ class _CartPageState extends State<CartPage> {
     return <int>[];
   }
 
+  /// Construye el payload de toppings para el backend.
+  ///
+  /// Soporta:
+  /// - Lista de mapas con {id | top_int_id, qty?}  -> "toppings":[{"top_int_id":x,"qty":y}]
+  /// - Lista de ids (int/string)                    -> "toppings_ids":[x,y]
+  /// - Campo previo 'toppingsIds'/'toppings_ids'    -> "toppings_ids":[x,y]
+  Map<String, dynamic> _buildToppingsBackendPayload(
+    Map<String, dynamic> item,
+  ) {
+    final dynamic rawToppings = item['toppings'];
+    final dynamic rawToppingsIds = item['toppingsIds'] ?? item['toppings_ids'];
+
+    final List<Map<String, dynamic>> toppingsObjects = [];
+    final Set<int> toppingsIdsSet = <int>{};
+
+    // Toppings provenientes del carrito (lista)
+    if (rawToppings is List) {
+      for (final t in rawToppings) {
+        if (t is Map) {
+          final int id = _asInt(t['top_int_id'] ?? t['id']);
+          if (id <= 0) continue;
+          final int qtyRaw = _asInt(t['qty'] ?? 1);
+          final int qty = qtyRaw <= 0 ? 1 : qtyRaw;
+          toppingsObjects.add({
+            'top_int_id': id,
+            'qty': qty,
+          });
+          toppingsIdsSet.add(id);
+        } else {
+          final int id = _asInt(t);
+          if (id > 0) toppingsIdsSet.add(id);
+        }
+      }
+    }
+
+    // Toppings ya expresados como ids
+    if (rawToppingsIds is List) {
+      for (final e in rawToppingsIds) {
+        final int id = _asInt(e);
+        if (id > 0) toppingsIdsSet.add(id);
+      }
+    }
+
+    final Map<String, dynamic> payload = <String, dynamic>{};
+
+    // Prioridad: estructura completa con qty ("toppings").
+    if (toppingsObjects.isNotEmpty) {
+      payload['toppings'] = toppingsObjects;
+      return payload;
+    }
+
+    // Si solo tenemos ids, usamos "toppings_ids".
+    if (toppingsIdsSet.isNotEmpty) {
+      payload['toppings_ids'] = toppingsIdsSet.toList();
+      return payload;
+    }
+
+    // Sin toppings
+    return payload;
+  }
+
   String _formatToppingsForUi(Map<String, dynamic> item) {
     final dynamic raw = item['toppings'];
     if (raw is List) {
-      if (raw.isEmpty) return 'Sin toppings';
+      if (raw.isEmpty) return '';
       if (raw.first is String) {
-        return raw.join(', ');
+        return raw
+            .map((e) => e.toString())
+            .where((name) => name.trim().isNotEmpty)
+            .join(', ');
       }
       if (raw.first is Map) {
         return raw
@@ -222,7 +314,7 @@ class _CartPageState extends State<CartPage> {
       }
       return raw.map((e) => e.toString()).join(', ');
     }
-    return 'Sin toppings';
+    return '';
   }
 
   @override
@@ -240,6 +332,26 @@ class _CartPageState extends State<CartPage> {
       final int safeQty = quantity <= 0 ? 1 : quantity;
       return sum + (unit * safeQty);
     });
+  }
+
+  // Subtotal sin aplicar el descuento global del carrito
+  double get _subtotalSinDescuento {
+    return pedidos.fold(0.0, (sum, p) {
+      final double unit = _computeUnitTotalSinDescuento(p);
+      final int quantity = _asInt(p['quantity'] ?? 1);
+      final int safeQty = quantity <= 0 ? 1 : quantity;
+      return sum + (unit * safeQty);
+    });
+  }
+
+  // Monto total de descuento aplicado en el carrito
+  double get _montoDescuento {
+    if (_descuento <= 0) return 0.0;
+    final double subtotal = _subtotalSinDescuento;
+    final double total = _totalPrice;
+    final double diff = subtotal - total;
+    if (diff < 0) return 0.0;
+    return diff;
   }
 
   void _clearAll() {
@@ -559,19 +671,52 @@ class _CartPageState extends State<CartPage> {
 
         final int quantity = _asInt(item['quantity'] ?? 1);
         final String size = (item['size'] ?? '').toString().toUpperCase();
-        final List<int> toppingsIds = _extractToppingsIds(item);
         final String notes = (item['notes'] ?? '').toString();
         final double priceWithDiscount = _computeUnitTotal(item);
+        final double sizeExtraValue = _asDouble(item['sizeExtra']);
 
-        itemsPayload.add({
+        // Construir item base (el backend calcula el precio, solo usamos
+        // priceWithDiscount en la app para saldo y recibo).
+        final Map<String, dynamic> itemMap = <String, dynamic>{
           'pro_int_id': proIntId,
           'pdi_txt_size': size,
           'pdi_int_quantity': quantity,
-          'toppings': toppingsIds,
           'pdi_txt_notes': notes,
-          'pdi_num_price': priceWithDiscount,
-        });
+        };
+
+        // Enviar explícitamente el valor extra asociado al tamaño del vaso,
+        // para que el backend pueda considerar este monto al calcular el total.
+        if (sizeExtraValue != 0.0) {
+          itemMap['pdi_de_size_extraprice'] = sizeExtraValue;
+        }
+
+        // Adjuntar toppings según corresponda
+        final Map<String, dynamic> toppingsPayload =
+            _buildToppingsBackendPayload(item);
+        itemMap.addAll(toppingsPayload);
+
+        // Log de diagnóstico: cómo está calculando la app cada ítem
+        try {
+          final double base = _asDouble(item['basePrice']);
+          final double sizeExtra = sizeExtraValue;
+          final double iceExtra = _asDouble(item['iceExtra']);
+          final double toppingsTotal = _asDouble(item['toppingsTotal']);
+          debugPrint(
+            'ITEM PEDIDO APP => pro_int_id=$proIntId, size=$size, qty=$quantity, '
+            'base=$base, sizeExtra=$sizeExtra, iceExtra=$iceExtra, '
+            'toppingsTotal=$toppingsTotal, unitTotalApp=$priceWithDiscount, '
+            'toppingsPayload=$toppingsPayload',
+          );
+        } catch (_) {}
+
+        itemsPayload.add(itemMap);
       }
+
+      // Log de diagnóstico: total que espera la app vs lo que luego descuenta el backend
+      debugPrint(
+        'DIAGNOSTICO PRE-PEDIDO: totalCarritoApp=S/. '
+        '${_totalPrice.toStringAsFixed(2)} para ${itemsPayload.length} items',
+      );
 
       if (itemsPayload.isEmpty) {
         await _showPremiumModal(
@@ -583,10 +728,21 @@ class _CartPageState extends State<CartPage> {
         return null;
       }
 
-      final body = jsonEncode({
+      final Map<String, dynamic> pedidoPayload = <String, dynamic>{
         'ped_txt_delivery': deliveryCode,
+        'ped_txt_channel': 'APP',
         'items': itemsPayload,
-      });
+      };
+
+      // Si hay una oferta/canje asociado, lo adjuntamos.
+      final int? ofcId = widget.ofcIntId;
+      if (ofcId != null && ofcId > 0) {
+        pedidoPayload['ofc_int_id'] = ofcId;
+      }
+
+      final String body = jsonEncode(pedidoPayload);
+
+      debugPrint('CREAR PEDIDO REQUEST => $body');
 
       final uri = BackendConfig.api('bubblesplash/pedidos/');
 
@@ -627,15 +783,31 @@ class _CartPageState extends State<CartPage> {
       }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        debugPrint('CREAR PEDIDO OK => ${response.statusCode} ${response.body}');
         return jsonDecode(response.body) as Map<String, dynamic>;
       } else {
         debugPrint(
           'Error al crear pedido: ${response.statusCode} ${response.body}',
         );
+
+        String errorMessage =
+            'No se pudo crear el pedido (${response.statusCode}). Intenta nuevamente.';
+
+        // Si el backend manda un "detail", lo mostramos al usuario
+        try {
+          final dynamic decoded = jsonDecode(response.body);
+          if (decoded is Map<String, dynamic>) {
+            final String detail =
+                (decoded['detail'] ?? decoded['message'] ?? '').toString();
+            if (detail.isNotEmpty) {
+              errorMessage = detail;
+            }
+          }
+        } catch (_) {}
+
         await _showPremiumModal(
           title: 'No se pudo procesar',
-          message:
-              'No se pudo crear el pedido (${response.statusCode}). Intenta nuevamente.',
+          message: errorMessage,
           icon: Icons.receipt_long_rounded,
           accent: const Color(0xFFE53935),
         );
@@ -657,6 +829,15 @@ class _CartPageState extends State<CartPage> {
     final String name = (item['name'] ?? 'Producto Desconocido').toString();
     final double price = _computeUnitTotal(item);
     final int quantity = _asInt(item['quantity'] ?? 1);
+
+    final String sizeText = (item['size'] ?? '').toString();
+    final String iceText = (item['ice'] ?? '').toString();
+    final String toppingsText = _formatToppingsForUi(item).trim();
+    final List<String> details = [
+      if (sizeText.isNotEmpty) sizeText,
+      if (iceText.isNotEmpty) iceText,
+      if (toppingsText.isNotEmpty) toppingsText,
+    ];
 
     final String? imagePath =
         item['image'] ?? item['imagePath'] ?? item['imageUrl'];
@@ -726,12 +907,14 @@ class _CartPageState extends State<CartPage> {
                     color: Color(0xFF555555),
                   ),
                 ),
-                Text(
-                  "${item['size']}, ${item['ice']}, ${_formatToppingsForUi(item)}",
-                  style: const TextStyle(fontSize: 12, color: Colors.black54),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                if (details.isNotEmpty)
+                  Text(
+                    details.join(', '),
+                    style:
+                        const TextStyle(fontSize: 12, color: Colors.black54),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
               ],
             ),
           ),
@@ -799,6 +982,9 @@ class _CartPageState extends State<CartPage> {
   @override
   Widget build(BuildContext context) {
     final int totalItems = pedidos.length;
+    final bool hasDiscount = _descuento > 0;
+    final double subtotalSinDescuento = _subtotalSinDescuento;
+    final double montoDescuento = _montoDescuento;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -895,6 +1081,75 @@ class _CartPageState extends State<CartPage> {
             ),
             child: Column(
               children: [
+                if (hasDiscount && montoDescuento > 0.009) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Subtotal',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        'S/. ${subtotalSinDescuento.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Descuento (${(_descuento * 100).toStringAsFixed(0)}%)',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.redAccent,
+                        ),
+                      ),
+                      Text(
+                        '- S/. ${montoDescuento.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.redAccent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Divider(height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total a pagar',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                        ),
+                      ),
+                      Text(
+                        'S/. ${_totalPrice.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 const Text(
                   '¿De qué forma lo vas a disfrutar?',
                   style: TextStyle(
@@ -1046,12 +1301,18 @@ class _CartPageState extends State<CartPage> {
                               if (mounted &&
                                   (descontado - _totalPrice).abs() > 0.01) {
                                 await _showPremiumModal(
-                                  title: 'Detalle de cobro',
+                                  title: 'Desajuste en el cobro',
                                   message:
-                                      'Se descontó S/. ${descontado.toStringAsFixed(2)} (tu carrito: S/. ${_totalPrice.toStringAsFixed(2)}).',
-                                  icon: Icons.receipt_long_rounded,
-                                  accent: const Color(0xFF42A5F5),
+                                      'Se descontó S/. ${descontado.toStringAsFixed(2)} desde la billetera, '
+                                      'pero el total de tu pedido es S/. ${_totalPrice.toStringAsFixed(2)}.\n\n'
+                                      'Por seguridad, no se marcará este pedido como pagado en la app. '
+                                      'Por favor informa a un encargado para revisar el backend.',
+                                  icon: Icons.warning_rounded,
+                                  accent: const Color(0xFFE53935),
                                 );
+
+                                // No continuar al comprobante si el backend cobró menos
+                                return;
                               }
                             }
 

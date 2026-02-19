@@ -6,7 +6,6 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:geolocator/geolocator.dart';
 
 import '../models/user_profile.dart';
 import '../services/user_profile_service.dart';
@@ -52,10 +51,9 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
   final TextEditingController _addressController = TextEditingController();
   final TextEditingController _occupationController = TextEditingController();
   final TextEditingController _educationLevelController = TextEditingController();
-  final TextEditingController _longitudeController = TextEditingController();
-  final TextEditingController _latitudeController = TextEditingController();
   final TextEditingController _avatarUrlController = TextEditingController();
   final TextEditingController _birthdayController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
 
   DateTime? _birthday;
 
@@ -105,15 +103,14 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
     _addressController.dispose();
     _occupationController.dispose();
     _educationLevelController.dispose();
-    _longitudeController.dispose();
-    _latitudeController.dispose();
     _avatarUrlController.dispose();
     _birthdayController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
   // =========================
-  // ✅ PERFIL COMPLETO (CORREGIDO: método de clase, NO adentro de _saveProfile)
+  // ✅ PERFIL COMPLETO
   // =========================
   bool _verificarPerfilCompleto() {
     final full = _fullNameController.text.trim();
@@ -215,11 +212,9 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
           _addressController.text = profile.address ?? '';
           _occupationController.text = profile.occupation ?? '';
           _educationLevelController.text = profile.educationLevel ?? '';
-          _longitudeController.text = profile.longitude?.toString() ?? '';
-          _latitudeController.text = profile.latitude?.toString() ?? '';
           _avatarUrlController.text = profile.avatarUrl ?? '';
+          _phoneController.text = profile.celular ?? '';
 
-          // ✅ ahora sí refresca UI
           _perfilCompleto = _verificarPerfilCompleto();
           _puntosOtorgados = prefs.getBool(flagKey) ?? false;
         });
@@ -295,8 +290,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
       final flagKey = 'puntos_perfil_completo_$userId';
       final String keyPuntos = 'puntos_$userId';
 
-      await _updateLocationFromDevice();
-
       if (_localAvatarFile != null) {
         try {
           final uploadedUrl = await AvatarUploadService.uploadAvatar(_localAvatarFile!);
@@ -310,15 +303,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         }
       }
 
-      double? longitude;
-      double? latitude;
-      if (_longitudeController.text.trim().isNotEmpty) {
-        longitude = double.tryParse(_longitudeController.text.trim());
-      }
-      if (_latitudeController.text.trim().isNotEmpty) {
-        latitude = double.tryParse(_latitudeController.text.trim());
-      }
-
       final patchBody = <String, dynamic>{
         'use_txt_fcm': fcmValue,
         'use_txt_username': _usernameController.text.trim(),
@@ -330,8 +314,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         'use_txt_occupation': _occupationController.text.trim(),
         'use_txt_educationlevel': _educationLevelController.text.trim(),
         'use_txt_avatar': _avatarUrlController.text.trim(),
-        'use_double_longitude': longitude,
-        'use_double_latitude': latitude,
+        'use_txt_celular': _phoneController.text.trim(),
       };
 
       await UserProfileService.updateUserProfileRaw(
@@ -339,7 +322,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         userId: userId,
       );
 
-      // ✅ Recalcular estado
       final perfilCompletoAhora = _verificarPerfilCompleto();
       final puntosOtorgados = prefs.getBool(flagKey) ?? false;
 
@@ -350,7 +332,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         _puntosOtorgados = puntosOtorgados;
       });
 
-      // ✅ Otorgar puntos SOLO 1 vez por usuario
       if (perfilCompletoAhora && !puntosOtorgados) {
         final int puntosActuales = prefs.getInt(keyPuntos) ?? 0;
         await prefs.setInt(keyPuntos, puntosActuales + puntosPerfilCompleto);
@@ -368,7 +349,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         );
       }
 
-      // ✅ Re-cargar perfil real del backend (mejor que armar _profile con patchBody)
       await _loadProfile();
     } catch (e) {
       if (mounted) {
@@ -379,28 +359,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  Future<void> _updateLocationFromDevice() async {
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) return;
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-        return;
-      }
-
-      final Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      _latitudeController.text = position.latitude.toString();
-      _longitudeController.text = position.longitude.toString();
-    } catch (_) {}
   }
 
   // =========================
@@ -584,7 +542,8 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
                                           ? null
                                           : () async {
                                               final now = DateTime.now();
-                                              final initialDate = _birthday ?? DateTime(now.year - 18, now.month, now.day);
+                                              final initialDate =
+                                                  _birthday ?? DateTime(now.year - 18, now.month, now.day);
 
                                               final picked = await showDatePicker(
                                                 context: context,
@@ -643,6 +602,16 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
                                         icon: Icons.location_on_outlined,
                                       ),
                                     ),
+                                    const SizedBox(height: 10),
+                                    TextFormField(
+                                      controller: _phoneController,
+                                      readOnly: !_editMode,
+                                      keyboardType: TextInputType.phone,
+                                      decoration: _premiumInputDecoration(
+                                        label: "Celular",
+                                        icon: Icons.phone_outlined,
+                                      ),
+                                    ),
                                   ],
                                 ),
                                 _sectionCard(
@@ -681,52 +650,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
                                           ? null
                                           : (v) => setState(
                                               () => _educationLevelController.text = (v ?? _educationOptions.first)),
-                                    ),
-                                  ],
-                                ),
-                                _sectionCard(
-                                  title: "Ubicación",
-                                  icon: Icons.my_location_outlined,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: TextFormField(
-                                            controller: _latitudeController,
-                                            readOnly: true,
-                                            decoration: _premiumInputDecoration(
-                                              label: "Latitud",
-                                              icon: Icons.explore_outlined,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: TextFormField(
-                                            controller: _longitudeController,
-                                            readOnly: true,
-                                            decoration: _premiumInputDecoration(
-                                              label: "Longitud",
-                                              icon: Icons.explore,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 10),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton.icon(
-                                        onPressed: _editMode ? _updateLocationFromDevice : null,
-                                        icon: const Icon(Icons.gps_fixed),
-                                        label: const Text("Actualizar ubicación"),
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: _brandTeal,
-                                          side: BorderSide(color: _brandTeal.withOpacity(0.6)),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                          padding: const EdgeInsets.symmetric(vertical: 12),
-                                        ),
-                                      ),
                                     ),
                                   ],
                                 ),

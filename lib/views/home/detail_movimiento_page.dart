@@ -37,6 +37,26 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
   final String _direccionEmpresa = 'Calle. Sargento Lores, Iquitos, Loreto';
   final String _telefonoContacto = '+51 999 999 999';
 
+  String _formatToppingsForUi(dynamic raw) {
+    if (raw is List) {
+      if (raw.isEmpty) return '';
+      if (raw.first is String) {
+        return raw
+            .map((e) => e.toString())
+            .where((name) => name.trim().isNotEmpty)
+            .join(', ');
+      }
+      if (raw.first is Map) {
+        return raw
+            .map((e) => (e is Map ? (e['name'] ?? '').toString() : ''))
+            .where((name) => name.trim().isNotEmpty)
+            .join(', ');
+      }
+      return raw.map((e) => e.toString()).join(', ');
+    }
+    return '';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -159,13 +179,13 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
 
                 final List<dynamic> toppingsRaw =
                     (map['toppings'] is List) ? map['toppings'] : <dynamic>[];
-                final List<String> toppings =
-                    toppingsRaw.map((e) => e.toString()).toList();
+                final String toppingsText =
+                    _formatToppingsForUi(toppingsRaw).trim();
 
                 final List<String> details = [
                   if (size.isNotEmpty) size,
                   if (ice.isNotEmpty) ice,
-                  ...toppings,
+                  if (toppingsText.isNotEmpty) toppingsText,
                 ];
 
                 return pw.Padding(
@@ -590,15 +610,17 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                               final String ice = (map['ice'] ?? '').toString();
 
                               final List<dynamic> toppingsRaw =
-                                  (map['toppings'] is List) ? map['toppings'] : <dynamic>[];
+                                  (map['toppings'] is List)
+                                      ? map['toppings']
+                                      : <dynamic>[];
 
-                              final List<String> toppings =
-                                  toppingsRaw.map((e) => e.toString()).toList();
+                              final String toppingsText =
+                                  _formatToppingsForUi(toppingsRaw).trim();
 
                               final List<String> details = [
                                 if (size.isNotEmpty) size,
                                 if (ice.isNotEmpty) ice,
-                                ...toppings,
+                                if (toppingsText.isNotEmpty) toppingsText,
                               ];
 
                               return Padding(

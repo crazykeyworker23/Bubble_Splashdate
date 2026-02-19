@@ -14,6 +14,160 @@ import '../../constants/api_constants.dart';
 import 'package:bubblesplash/models/category.dart';
 import 'package:bubblesplash/models/product.dart';
 import 'package:bubblesplash/models/topping.dart';
+// =========================
+// Splash Bubble Premium UI (diseño premium glass)
+// =========================
+class SB {
+  // Colores principales premium
+  static const navy = Color(0xFF062B35);
+  static const teal = Color(0xFF128FA0);
+  static const teal2 = Color(0xFF12A3B6);
+  static const mint = Color(0xFF22C55E);
+  static const gold = Color(0xFFF6C453);
+  static const blueGlass = Color(0xCCF0F9FF);
+
+  // Fondo y tarjetas
+  static const bg = Color(0xFFF6FAFC);
+  static const card = Colors.white;
+  static const glass = Color(0xB3F0F9FF); // glassmorphism
+  static const stroke = Color(0xFFE6EEF5);
+  static const text = Color(0xFF0F172A);
+  static const sub = Color(0xFF64748B);
+
+  // Gradientes premium
+  static const gradBrand = LinearGradient(
+    colors: [navy, teal],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  static const gradAccent = LinearGradient(
+    colors: [teal, teal2],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  static const gradGlass = LinearGradient(
+    colors: [Color(0x66FFFFFF), Color(0x33FFFFFF), Color(0x11FFFFFF)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  // Sombras premium
+  static List<BoxShadow> shadowSoft = [
+    BoxShadow(
+      color: Colors.black.withOpacity(0.07),
+      blurRadius: 22,
+      offset: const Offset(0, 12),
+    ),
+  ];
+
+  static List<BoxShadow> shadowStrong = [
+    BoxShadow(
+      color: Colors.black.withOpacity(0.16),
+      blurRadius: 36,
+      offset: const Offset(0, 18),
+    ),
+  ];
+
+  // Efecto glassmorphism
+  static BoxDecoration glassBox({BorderRadiusGeometry? radius}) => BoxDecoration(
+        gradient: gradGlass,
+        color: glass,
+        borderRadius: radius ?? BorderRadius.circular(20),
+        border: Border.all(color: stroke.withOpacity(0.7), width: 1.2),
+        boxShadow: shadowSoft,
+        backgroundBlendMode: BlendMode.overlay,
+      );
+}
+
+class PremiumCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final BorderRadiusGeometry radius;
+  final bool glass;
+  final bool shadow;
+  final bool borderGlow;
+
+  const PremiumCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.radius = const BorderRadius.all(Radius.circular(22)),
+    this.glass = false,
+    this.shadow = true,
+    this.borderGlow = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      padding: padding,
+      decoration: glass
+          ? SB.glassBox(radius: radius).copyWith(
+              boxShadow: shadow ? SB.shadowSoft : [],
+              border: Border.all(
+                color: borderGlow ? SB.mint.withOpacity(0.45) : SB.stroke,
+                width: borderGlow ? 2.2 : 1.2,
+              ),
+            )
+          : BoxDecoration(
+              color: SB.card,
+              borderRadius: radius,
+              border: Border.all(
+                color: borderGlow ? SB.mint.withOpacity(0.45) : SB.stroke,
+                width: borderGlow ? 2.2 : 1.2,
+              ),
+              boxShadow: shadow ? SB.shadowSoft : [],
+            ),
+      child: child,
+    );
+  }
+}
+
+class PremiumPill {
+  static ShapeBorder shape({bool selected = false, bool glow = false}) {
+    return StadiumBorder(
+      side: BorderSide(
+        color: selected
+            ? (glow ? SB.mint.withOpacity(0.55) : Colors.transparent)
+            : SB.text.withOpacity(0.08),
+        width: glow ? 2.0 : 1.0,
+      ),
+    );
+  }
+
+  static BoxDecoration decoration({bool selected = false, bool glow = false}) {
+    return BoxDecoration(
+      gradient: selected
+          ? SB.gradAccent
+          : LinearGradient(
+              colors: [SB.card, SB.bg],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+      borderRadius: BorderRadius.circular(999),
+      boxShadow: glow && selected
+          ? [
+              BoxShadow(
+                color: SB.mint.withOpacity(0.18),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ]
+          : [],
+      border: Border.all(
+        color: selected
+            ? (glow ? SB.mint.withOpacity(0.55) : SB.stroke)
+            : SB.stroke,
+        width: glow && selected ? 2.0 : 1.0,
+      ),
+    );
+  }
+}
+
 
 bool isBase64(String str) {
   final base64RegExp = RegExp(r'^[A-Za-z0-9+/=\r\n]+={0,2}\u0000*\u0000*$');
@@ -30,7 +184,9 @@ String extractBase64(String str) {
 
 class MenuPage extends StatefulWidget {
   final double descuento;
-  const MenuPage({super.key, this.descuento = 0.0});
+  // Id opcional de la oferta/canje aplicada (se usará como ofc_int_id en el pedido)
+  final int? ofcIntId;
+  const MenuPage({super.key, this.descuento = 0.0, this.ofcIntId});
 
   @override
   State<MenuPage> createState() => _MenuPageState();
@@ -259,8 +415,11 @@ class _MenuPageState extends State<MenuPage>
       updatedPedidos = await Navigator.push<List<Map<String, dynamic>>>(
         context,
         MaterialPageRoute(
-          builder: (context) =>
-              CartPage(initialPedidos: pedidos, descuento: widget.descuento),
+          builder: (context) => CartPage(
+            initialPedidos: pedidos,
+            descuento: widget.descuento,
+            ofcIntId: widget.ofcIntId,
+          ),
         ),
       );
     } finally {
@@ -1006,6 +1165,7 @@ class _MenuPageState extends State<MenuPage>
                                 products: products,
                                 descuento: widget.descuento,
                                 initialPedidos: pedidos,
+                                ofcIntId: widget.ofcIntId,
                               ),
                             ),
                           );
@@ -1407,13 +1567,19 @@ class ProductDetailPage extends StatefulWidget {
 class _SelectableTopping {
   final Topping topping;
   final bool selected;
+  final int quantity; // 0, 1 o 2 unidades
 
-  const _SelectableTopping({required this.topping, this.selected = false});
+  const _SelectableTopping({
+    required this.topping,
+    this.selected = false,
+    this.quantity = 0,
+  });
 
-  _SelectableTopping copyWith({Topping? topping, bool? selected}) {
+  _SelectableTopping copyWith({Topping? topping, bool? selected, int? quantity}) {
     return _SelectableTopping(
       topping: topping ?? this.topping,
       selected: selected ?? this.selected,
+      quantity: quantity ?? this.quantity,
     );
   }
 }
@@ -1462,10 +1628,10 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
     final sizeExtra = _sizePrices[selectedSize] ?? 0.0;
     final iceExtra = _icePrices[selectedIce] ?? 0.0;
-    final selectedToppings = toppings.where((t) => t.selected);
+    final selectedToppings = toppings.where((t) => t.quantity > 0);
     final toppingsTotal = selectedToppings.fold<double>(
       0.0,
-      (sum, t) => sum + t.topping.price,
+      (sum, t) => sum + (t.topping.price * t.quantity),
     );
 
     final unitTotal = basePrice + sizeExtra + iceExtra + toppingsTotal;
@@ -1483,12 +1649,13 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       'size': selectedSize,
       'ice': selectedIce,
       'toppings': toppings
-          .where((t) => t.selected)
+          .where((t) => t.quantity > 0)
           .map(
             (t) => {
               'id': t.topping.id,
               'name': t.topping.name,
               'price': t.topping.price,
+              'qty': t.quantity,
             },
           )
           .toList(),
@@ -1617,6 +1784,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
   Future<void> _loadToppings() async {
     try {
+      final int productId = widget.product.id;
+      if (productId == 0) return;
+
       final prefs = await SharedPreferences.getInstance();
       final rawToken = prefs.getString('access_token');
       if (rawToken == null || rawToken.trim().isEmpty) {
@@ -1625,10 +1795,13 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       }
 
       final token = rawToken.trim();
-      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/toppings/');
+      final baseUrl = ApiConstants.baseUrl;
 
-      http.Response response = await http.get(
-        uri,
+      // 1) Obtener qué toppings corresponden a este producto
+      final uriMap = Uri.parse(baseUrl + '/bubblesplash/productos-toppings/');
+
+      http.Response responseMap = await http.get(
+        uriMap,
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -1636,11 +1809,11 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         },
       );
 
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
+      if (responseMap.statusCode == 401 && await AuthService.refreshToken()) {
         final newToken = prefs.getString('access_token')?.trim();
         if (newToken != null && newToken.isNotEmpty) {
-          response = await http.get(
-            uri,
+          responseMap = await http.get(
+            uriMap,
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
@@ -1650,14 +1823,83 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         }
       }
 
-      if (response.statusCode != 200) {
+      if (responseMap.statusCode != 200) {
         debugPrint(
-          'Error al cargar toppings: ${response.statusCode} ${response.body}',
+          'Error al cargar mapa productos-toppings: ${responseMap.statusCode} ${responseMap.body}',
         );
         return;
       }
 
-      final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
+      final List<dynamic> dataMap = jsonDecode(responseMap.body) as List<dynamic>;
+      final Set<int> allowedToppingIds = <int>{};
+
+      for (final item in dataMap.whereType<Map<String, dynamic>>()) {
+        final dynamic rawProId =
+            item['pro_int_id'] ?? item['producto'] ?? item['product_id'];
+        int proId;
+        if (rawProId is int) {
+          proId = rawProId;
+        } else {
+          proId = int.tryParse(rawProId?.toString() ?? '') ?? -1;
+        }
+        if (proId != productId) continue;
+
+        final dynamic rawTopId =
+            item['top_int_id'] ?? item['topping'] ?? item['top_id'];
+        int topId;
+        if (rawTopId is int) {
+          topId = rawTopId;
+        } else {
+          topId = int.tryParse(rawTopId?.toString() ?? '') ?? 0;
+        }
+        if (topId > 0) allowedToppingIds.add(topId);
+      }
+
+      if (allowedToppingIds.isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          toppings = [];
+          totalPrice = _calcularTotal();
+        });
+        return;
+      }
+
+      // 2) Obtener el catálogo completo de toppings y filtrar por los permitidos
+      final uriToppings = Uri.parse(baseUrl + '/bubblesplash/toppings/');
+
+      http.Response responseToppings = await http.get(
+        uriToppings,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (responseToppings.statusCode == 401 &&
+          await AuthService.refreshToken()) {
+        final newToken = prefs.getString('access_token')?.trim();
+        if (newToken != null && newToken.isNotEmpty) {
+          responseToppings = await http.get(
+            uriToppings,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $newToken',
+            },
+          );
+        }
+      }
+
+      if (responseToppings.statusCode != 200) {
+        debugPrint(
+          'Error al cargar toppings: ${responseToppings.statusCode} ${responseToppings.body}',
+        );
+        return;
+      }
+
+      final List<dynamic> data =
+          jsonDecode(responseToppings.body) as List<dynamic>;
       final List<_SelectableTopping> nuevosToppings = data
           .whereType<Map<String, dynamic>>()
           .where(
@@ -1668,12 +1910,20 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             final int id = (item['top_int_id'] ?? 0) is int
                 ? item['top_int_id'] as int
                 : int.tryParse(item['top_int_id'].toString()) ?? 0;
+            return {'map': item, 'id': id};
+          })
+          .where((wrapper) => allowedToppingIds.contains(wrapper['id'] as int))
+          .map((wrapper) {
+            final Map<String, dynamic> item =
+                wrapper['map'] as Map<String, dynamic>;
+            final int id = wrapper['id'] as int;
             final String name = (item['top_txt_name'] ?? '').toString();
             final String priceStr = (item['top_de_price'] ?? '0').toString();
             final double price = double.tryParse(priceStr) ?? 0.0;
             return _SelectableTopping(
               topping: Topping(id: id, name: name, price: price),
               selected: false,
+              quantity: 0,
             );
           })
           .toList();
@@ -1771,460 +2021,660 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   double _calcularTotal() {
     final sizeExtra = _sizePrices[selectedSize] ?? 0.0;
     final iceExtra = _icePrices[selectedIce] ?? 0.0;
-    final toppingsTotal = toppings
-        .where((t) => t.selected)
-        .fold<double>(0.0, (sum, t) => sum + t.topping.price);
+    final toppingsTotal = toppings.fold<double>(
+      0.0,
+      (sum, t) => sum + (t.topping.price * t.quantity),
+    );
 
     return basePrice + sizeExtra + iceExtra + toppingsTotal;
   }
 
-  void _toggleTopping(int index) {
-    final selectedCount = toppings.where((t) => t.selected).length;
-    final isSelected = toppings[index].selected;
+  void _changeToppingQuantity(int index, int delta) {
+    final current = toppings[index];
+    final currentQty = current.quantity;
 
-    if (!isSelected && selectedCount >= 3) {
+    // Nueva cantidad propuesta (0, 1 o 2)
+    int nextQty = currentQty + delta;
+    if (nextQty < 0) nextQty = 0;
+    if (nextQty > 2) nextQty = 2;
+
+    // Cantidad total actual de unidades de toppings
+    final currentTotalUnits =
+        toppings.fold<int>(0, (sum, t) => sum + t.quantity);
+
+    final newTotalUnits = currentTotalUnits - currentQty + nextQty;
+
+    if (newTotalUnits > 3) {
       showDialog(
         context: context,
         barrierDismissible: true,
         builder: (_) => const _PremiumFeedbackModal(
-          message: 'Solo puedes elegir hasta 3 toppings.',
+          message: 'Solo puedes elegir hasta 3 toppings en total.',
         ),
       );
       return;
     }
 
+    final nextSelected = nextQty > 0;
+
     setState(() {
-      toppings[index] = toppings[index].copyWith(selected: !isSelected);
+      toppings[index] = current.copyWith(
+        selected: nextSelected,
+        quantity: nextQty,
+      );
       totalPrice = _calcularTotal();
     });
   }
 
+
+
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return Scaffold(
-      backgroundColor: const Color(0xFFF7FAFC),
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          // =========================
-          // HEADER PREMIUM (collapsible)
-          // =========================
-          SliverAppBar(
-            pinned: true,
-            stretch: true,
-            expandedHeight: 300,
-            backgroundColor: const Color(0xFF0B3D4A),
-            elevation: 0,
-            leading: IconButton(
-              icon: const Icon(
-                Icons.arrow_back_ios_new_rounded,
-                color: Colors.white,
-              ),
-              onPressed: () => Navigator.pop(context),
-            ),
-            title: Text(
-              widget.product.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.2,
-              ),
-            ),
-            flexibleSpace: FlexibleSpaceBar(
-              stretchModes: const [
-                StretchMode.zoomBackground,
-                StretchMode.fadeTitle,
-              ],
-              background: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _buildDetailImage(widget.product.image),
-                  // Overlay premium
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.black.withOpacity(0.10),
-                          Colors.black.withOpacity(0.60),
-                          const Color(0xFF0B3D4A).withOpacity(0.85),
-                        ],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                      ),
-                    ),
-                  ),
-
-                  // Info bottom sobre la imagen
-                  Positioned(
-                    left: 18,
-                    right: 18,
-                    bottom: 16,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.product.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w900,
-                            height: 1.08,
-                            shadows: [
-                              Shadow(color: Colors.black54, blurRadius: 14),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            _PricePill(
-                              text: 'S/. ${basePrice.toStringAsFixed(2)}',
-                              icon: Icons.sell_rounded,
-                            ),
-                            if (widget.descuento > 0)
-                              _DiscountPill(
-                                text: '-${(widget.descuento * 100).toInt()}%',
-                              ),
-                            if (_isLoadingDetail)
-                              const _StatusPill(text: 'Actualizando precio...'),
-                            if (_detailError != null)
-                              _StatusPill(
-                                text: 'Error de detalle',
-                                danger: true,
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+      extendBody: true,
+      extendBodyBehindAppBar: true,
+      backgroundColor: SB.bg,
+      body: Stack(
+        children: [
+          // Fondo glassmorphism premium
+          Positioned.fill(
+            child: Container(
+              decoration: SB.glassBox(radius: BorderRadius.zero).copyWith(
+                gradient: SB.gradBrand,
+                color: SB.bg.withOpacity(0.98),
+                boxShadow: [],
               ),
             ),
           ),
-
-          // =========================
-          // BODY
-          // =========================
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 110),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Mensaje de error (detalle)
-                  if (_detailError != null) ...[
-                    _SectionCard(
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.error_outline_rounded,
-                            color: Colors.redAccent,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              _detailError!,
-                              style: const TextStyle(
-                                color: Colors.redAccent,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-
-                  // Descripción
-                  if (widget.product.description.trim().isNotEmpty) ...[
-                    _SectionTitle(title: 'Descripción'),
-                    const SizedBox(height: 10),
-                    _SectionCard(
-                      child: Text(
-                        widget.product.description,
-                        style: const TextStyle(
-                          fontSize: 15.5,
-                          height: 1.35,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF111827),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  // Tamaños
-                  _SectionTitle(title: 'Tamaño de vaso'),
-                  const SizedBox(height: 10),
-                  _SectionCard(
-                    child: Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children:
-                          (_sizePrices.keys.isNotEmpty
-                                  ? _sizePrices.keys.toList()
-                                  : ['Normal'])
-                              .map((size) {
-                                final selected = selectedSize == size;
-                                final extra = _sizePrices[size] ?? 0.0;
-                                String label = _labelSize(size);
-                                if (extra > 0.0) {
-                                  label +=
-                                      ' (+S/. ' +
-                                      extra.toStringAsFixed(2) +
-                                      ')';
-                                } else if (extra < 0.0) {
-                                  label +=
-                                      ' (-S/. ' +
-                                      (-extra).toStringAsFixed(2) +
-                                      ')';
-                                }
-                                return ChoiceChip(
-                                  label: Text(label),
-                                  selected: selected,
-                                  onSelected: (v) {
-                                    if (!v) return;
-                                    setState(() {
-                                      selectedSize = size;
-                                      totalPrice = _calcularTotal();
-                                    });
-                                  },
-                                  selectedColor: const Color(0xFF128FA0),
-                                  backgroundColor: const Color(0xFFF3F4F6),
-                                  labelStyle: TextStyle(
-                                    color: selected
-                                        ? Colors.white
-                                        : const Color(0xFF111827),
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(999),
-                                    side: BorderSide(
-                                      color: selected
-                                          ? Colors.transparent
-                                          : const Color(
-                                              0xFF111827,
-                                            ).withOpacity(0.08),
-                                    ),
-                                  ),
-                                  elevation: 0,
-                                  pressElevation: 0,
-                                );
-                              })
-                              .toList(),
-                    ),
+          // Overlay de luz suave para más profundidad
+          Positioned.fill(
+            child: IgnorePointer(
+              ignoring: true,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.white.withOpacity(0.10),
+                      Colors.transparent,
+                      Colors.black.withOpacity(0.16),
+                    ],
+                    stops: const [0.0, 0.45, 1.0],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  const SizedBox(height: 16),
-
-                  // Toppings
-                  _SectionTitle(title: 'Toppings (máx. 3)'),
-                  const SizedBox(height: 10),
-                  _SectionCard(
-                    child: toppings.isEmpty
-                        ? const Text(
-                            'No hay toppings disponibles.',
-                            style: TextStyle(
-                              color: Colors.black54,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          )
-                        : Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: List.generate(toppings.length, (index) {
-                              final t = toppings[index];
-                              return FilterChip(
-                                selected: t.selected,
-                                onSelected: (_) => _toggleTopping(index),
-                                label: Text(
-                                  '${t.topping.name} (+S/. ${t.topping.price.toStringAsFixed(2)})',
-                                ),
-                                selectedColor: const Color(0xFF22C55E),
-                                backgroundColor: const Color(0xFFF3F4F6),
-                                labelStyle: TextStyle(
-                                  color: t.selected
-                                      ? Colors.white
-                                      : const Color(0xFF111827),
-                                  fontWeight: t.selected
-                                      ? FontWeight.w900
-                                      : FontWeight.w700,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(999),
-                                  side: BorderSide(
-                                    color: t.selected
-                                        ? Colors.transparent
-                                        : const Color(
-                                            0xFF111827,
-                                          ).withOpacity(0.08),
-                                  ),
-                                ),
-                                elevation: 0,
-                                pressElevation: 0,
-                              );
-                            }),
-                          ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Hielo
-                  _SectionTitle(title: 'Nivel de hielo'),
-                  const SizedBox(height: 10),
-                  _SectionCard(
-                    child: Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: ['Normal', 'Extra hielo', 'Poco hielo'].map((
-                        ice,
-                      ) {
-                        final selected = selectedIce == ice;
-                        return ChoiceChip(
-                          label: Text(_labelIce(ice)),
-                          selected: selected,
-                          onSelected: (v) {
-                            if (!v) return;
-                            setState(() {
-                              selectedIce = ice;
-                              totalPrice = _calcularTotal();
-                            });
-                          },
-                          selectedColor: const Color(0xFF128FA0),
-                          backgroundColor: const Color(0xFFF3F4F6),
-                          labelStyle: TextStyle(
-                            color: selected
-                                ? Colors.white
-                                : const Color(0xFF111827),
-                            fontWeight: FontWeight.w900,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(999),
-                            side: BorderSide(
-                              color: selected
-                                  ? Colors.transparent
-                                  : const Color(0xFF111827).withOpacity(0.08),
-                            ),
-                          ),
-                          elevation: 0,
-                          pressElevation: 0,
-                        );
-                      }).toList(),
-                    ),
-                  ),
-
-                  const SizedBox(height: 6),
-                  Text(
-                    'Tip: Puedes tocar toppings para seleccionar (máx. 3).',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.black54,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
-        ],
-      ),
-
-      // =========================
-      // BOTTOM BAR PREMIUM
-      // =========================
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.10),
-                blurRadius: 28,
-                offset: const Offset(0, -10),
-              ),
-            ],
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(18),
-              topRight: Radius.circular(18),
-            ),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
+          // Imagen y glass overlay
+          CustomScrollView(
+            physics: const BouncingScrollPhysics(),
+            slivers: [
+              SliverAppBar(
+                pinned: true,
+                stretch: true,
+                expandedHeight: 320,
+                centerTitle: true,
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                leading: Container(
+                  margin: const EdgeInsets.only(left: 8, top: 8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF3F4F6),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: const Color(0xFF111827).withOpacity(0.06),
-                    ),
+                    color: Colors.white.withOpacity(0.13),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ),
+                title: Text(
+                  widget.product.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                flexibleSpace: FlexibleSpaceBar(
+                  stretchModes: const [
+                    StretchMode.zoomBackground,
+                    StretchMode.fadeTitle,
+                  ],
+                  background: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      const Text(
-                        'Total',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: Color(0xFF6B7280),
-                          fontWeight: FontWeight.w800,
+                      Positioned.fill(
+                        child: ClipRRect(
+                          borderRadius: const BorderRadius.vertical(
+                            bottom: Radius.circular(32),
+                          ),
+                          child: _buildDetailImage(widget.product.image),
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'S/. ${totalPrice.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF0B3D4A),
+                      // Glass overlay
+                      Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.black.withOpacity(0.10),
+                              Colors.black.withOpacity(0.60),
+                              SB.navy.withOpacity(0.85),
+                            ],
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                          ),
+                        ),
+                      ),
+                      // Tarjeta glass flotante
+                      Positioned(
+                        left: 18,
+                        right: 18,
+                        bottom: 10,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                Text(
+                                  'S/. ${totalPrice.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 18,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                if (widget.descuento > 0)
+                                  _DiscountPill(
+                                    text: '-${(widget.descuento * 100).toInt()}%',
+                                  ),
+                                if (_isLoadingDetail)
+                                  const _StatusPill(text: 'Actualizando precio...'),
+                                if (_detailError != null)
+                                  _StatusPill(
+                                    text: 'Error de detalle',
+                                    danger: true,
+                                  ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-
-              SizedBox(
-                height: 54,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.add_shopping_cart_rounded),
-                  label: const Text(
-                    'Agregar',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+              // BODY PREMIUM ESTILO BOTTOM SHEET
+              SliverToBoxAdapter(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.96),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(32),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.10),
+                        blurRadius: 24,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF128FA0),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 130),
+                    child: Column(
+                      children: [
+                      if (_detailError != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: PremiumCard(
+                            glass: true,
+                            shadow: false,
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.error_outline_rounded,
+                                  color: Colors.redAccent,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    _detailError!,
+                                    style: const TextStyle(
+                                      color: Colors.redAccent,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                      if (widget.product.description.trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: PremiumCard(
+                            glass: true,
+                            shadow: false,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const _SectionTitle(title: 'Descripción'),
+                                const SizedBox(height: 8),
+                                Text(
+                                  widget.product.description,
+                                  style: const TextStyle(
+                                    fontSize: 15.5,
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w500,
+                                    color: SB.text,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                      // Tamaño de vaso
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: PremiumCard(
+                          glass: true,
+                          shadow: false,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const _SectionTitle(title: 'Tamaño de vaso'),
+                              const SizedBox(height: 8),
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: (_sizePrices.keys.isNotEmpty
+                                          ? _sizePrices.keys.toList()
+                                          : ['Normal'])
+                                      .map((size) {
+                                    final selected = selectedSize == size;
+                                    final extra = _sizePrices[size] ?? 0.0;
+                                    String priceLabel;
+                                    if (extra == 0.0) {
+                                      priceLabel = 'Sin recargo';
+                                    } else if (extra > 0.0) {
+                                      priceLabel = '+S/. ${extra.toStringAsFixed(2)}';
+                                    } else {
+                                      priceLabel = '-S/. ${(-extra).toStringAsFixed(2)}';
+                                    }
+
+                                    return Padding(
+                                      padding: const EdgeInsets.only(right: 10),
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            selectedSize = size;
+                                            totalPrice = _calcularTotal();
+                                          });
+                                        },
+                                        child: AnimatedContainer(
+                                          duration: const Duration(milliseconds: 220),
+                                          curve: Curves.easeOutCubic,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                            vertical: 10,
+                                          ),
+                                          decoration: PremiumPill.decoration(
+                                            selected: selected,
+                                            glow: selected,
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Container(
+                                                padding: const EdgeInsets.all(6),
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  color: selected
+                                                      ? Colors.white.withOpacity(0.18)
+                                                      : SB.bg,
+                                                ),
+                                                child: Icon(
+                                                  Icons.local_drink_rounded,
+                                                  size: 18,
+                                                  color: selected ? Colors.white : SB.teal,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Text(
+                                                    size,
+                                                    style: TextStyle(
+                                                      color: selected ? Colors.white : SB.text,
+                                                      fontWeight: FontWeight.w900,
+                                                      fontSize: 14,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    priceLabel,
+                                                    style: theme.textTheme.labelSmall?.copyWith(
+                                                      color: selected
+                                                          ? Colors.white.withOpacity(0.9)
+                                                          : SB.sub,
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // Toppings (ocultos)
+                      Visibility(
+                        visible: false,
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: PremiumCard(
+                            glass: true,
+                            shadow: false,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const _SectionTitle(
+                                  title: 'Toppings (máx. 3)',
+                                ),
+                                const SizedBox(height: 8),
+                                toppings.isEmpty
+                                    ? const Text(
+                                        'No hay toppings disponibles.',
+                                        style: TextStyle(
+                                          color: Colors.black54,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      )
+                                    : Wrap(
+                                        spacing: 10,
+                                        runSpacing: 10,
+                                        children: List.generate(
+                                          toppings.length,
+                                          (index) {
+                                            final t = toppings[index];
+                                            final selected = t.quantity > 0;
+                                            final priceLabel = '+S/. ${t.topping.price.toStringAsFixed(2)}';
+
+                                            return AnimatedContainer(
+                                              duration: const Duration(
+                                                milliseconds: 220,
+                                              ),
+                                              curve: Curves.easeOutCubic,
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 12,
+                                                vertical: 9,
+                                              ),
+                                              decoration: PremiumPill.decoration(
+                                                selected: selected,
+                                                glow: selected,
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  // Botón disminuir
+                                                  GestureDetector(
+                                                    onTap: () => _changeToppingQuantity(index, -1),
+                                                    child: Container(
+                                                      padding: const EdgeInsets.all(4),
+                                                      decoration: BoxDecoration(
+                                                        shape: BoxShape.circle,
+                                                        color: selected
+                                                            ? Colors.white.withOpacity(0.18)
+                                                            : SB.bg,
+                                                      ),
+                                                      child: Icon(
+                                                        Icons.remove,
+                                                        size: 18,
+                                                        color: selected ? Colors.white : SB.teal,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  // Info topping
+                                                  Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Text(
+                                                        t.topping.name,
+                                                        style: TextStyle(
+                                                          color: selected
+                                                              ? Colors.white
+                                                              : SB.text,
+                                                          fontWeight: FontWeight.w800,
+                                                          fontSize: 13,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        t.quantity > 0
+                                                            ? '$priceLabel · x${t.quantity}'
+                                                            : priceLabel,
+                                                        style: theme.textTheme.labelSmall?.copyWith(
+                                                          color: selected
+                                                              ? Colors.white.withOpacity(0.9)
+                                                              : SB.sub,
+                                                          fontWeight: FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  // Botón aumentar
+                                                  GestureDetector(
+                                                    onTap: () => _changeToppingQuantity(index, 1),
+                                                    child: Container(
+                                                      padding: const EdgeInsets.all(4),
+                                                      decoration: BoxDecoration(
+                                                        shape: BoxShape.circle,
+                                                        color: selected
+                                                            ? Colors.white.withOpacity(0.18)
+                                                            : SB.bg,
+                                                      ),
+                                                      child: Icon(
+                                                        Icons.add,
+                                                        size: 18,
+                                                        color: selected ? Colors.white : SB.teal,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Tip: Puedes tocar toppings para seleccionar (máx. 3).',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: Colors.black54,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // Nivel de hielo
+                      PremiumCard(
+                        glass: true,
+                        shadow: false,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const _SectionTitle(title: 'Nivel de hielo'),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: ['Normal', 'Extra hielo', 'Poco hielo']
+                                  .map((ice) {
+                                final selected = selectedIce == ice;
+                                return AnimatedContainer(
+                                  duration:
+                                      const Duration(milliseconds: 200),
+                                  curve: Curves.easeOutCubic,
+                                  child: ChoiceChip(
+                                    label: Text(_labelIce(ice)),
+                                    selected: selected,
+                                    onSelected: (v) {
+                                      if (!v) return;
+                                      setState(() {
+                                        selectedIce = ice;
+                                        totalPrice = _calcularTotal();
+                                      });
+                                    },
+                                    selectedColor: SB.teal,
+                                    backgroundColor: SB.card,
+                                    labelStyle: TextStyle(
+                                      color: selected
+                                          ? Colors.white
+                                          : SB.text,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                    shape: PremiumPill.shape(
+                                      selected: selected,
+                                      glow: selected,
+                                    ) as OutlinedBorder,
+                                    elevation: 0,
+                                    pressElevation: 0,
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ],
                     ),
                   ),
-                  onPressed: _handleAddToCartPremium, // 👇 lo agregamos abajo
                 ),
               ),
             ],
           ),
-        ),
+          // BOTTOM BAR PREMIUM
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: PremiumCard(
+                  glass: false,
+                  shadow: true,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Total',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: SB.sub,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'S/. ${totalPrice.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900,
+                                color: SB.navy,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'Incluye tamaño, hielo y toppings',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: SB.sub,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      AnimatedScale(
+                        duration: const Duration(milliseconds: 180),
+                        scale: 1.0,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.add_shopping_cart_rounded),
+                          label: const Text(
+                            'Agregar',
+                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: SB.teal,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            shadowColor: SB.mint.withOpacity(0.18),
+                          ),
+                          onPressed: _handleAddToCartPremium,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
+
+
+
+
+
 
   String _labelSize(String size) {
     final extra = _sizePrices[size] ?? 0.0;
@@ -2302,6 +2752,7 @@ class CategoryProductsPage extends StatefulWidget {
   final List<Product> products;
   final double descuento;
   final List<Map<String, dynamic>> initialPedidos;
+  final int? ofcIntId;
 
   const CategoryProductsPage({
     super.key,
@@ -2310,6 +2761,7 @@ class CategoryProductsPage extends StatefulWidget {
     required this.products,
     required this.descuento,
     required this.initialPedidos,
+    this.ofcIntId,
   });
 
   @override
@@ -2356,8 +2808,11 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     final updated = await Navigator.push<List<Map<String, dynamic>>>(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            CartPage(initialPedidos: _pedidos, descuento: widget.descuento),
+        builder: (_) => CartPage(
+          initialPedidos: _pedidos,
+          descuento: widget.descuento,
+          ofcIntId: widget.ofcIntId,
+        ),
       ),
     );
 

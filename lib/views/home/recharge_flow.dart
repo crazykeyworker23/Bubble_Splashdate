@@ -257,13 +257,6 @@ class _RechargeFlowPageState extends State<RechargeFlowPage> {
     if (keyMovs != null) {
       await prefs.setStringList(keyMovs, data);
     }
-
-    // Actualizar saldo por usuario: sumar monto recargado
-    if (user != null) {
-      final String keySaldo = 'saldo_${user.uid}';
-      final saldoActual = prefs.getDouble(keySaldo) ?? 0.0;
-      await prefs.setDouble(keySaldo, saldoActual + monto);
-    }
   }
 
   Widget _buildSuccessStep() {

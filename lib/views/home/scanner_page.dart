@@ -187,14 +187,6 @@ class _ScannerPageState extends State<ScannerPage> {
                           await prefs.setStringList(keyMovs, data);
                         }
 
-                        // Descontar el monto del saldo por usuario
-                        if (user != null) {
-                          final String keySaldo = 'saldo_${user.uid}';
-                          final saldoActual = prefs.getDouble(keySaldo) ?? 0.0;
-                          final nuevoSaldo = (saldoActual - monto).clamp(0.0, double.infinity);
-                          await prefs.setDouble(keySaldo, nuevoSaldo);
-                        }
-
                         // Mostrar comprobante usando el modelo simple + datos crudos
                         Navigator.push(
                           context,

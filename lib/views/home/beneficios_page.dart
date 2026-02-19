@@ -433,75 +433,68 @@ class _BeneficiosPageState extends State<BeneficiosPage>
     try {
       final rawToken = prefs.getString('access_token');
 
-      // Si no hay token, usa local
-      if (rawToken == null || rawToken.trim().isEmpty) {
-        final int storedPoints = prefs.getInt(keyPuntos) ?? 0;
-        if (!mounted) return;
-        setState(() {
-          puntos = storedPoints;
-          _actualizarNivelYProgreso();
-        });
-        return;
-      }
+      // Siempre consultar el backend para puntos reales
+      if (rawToken != null && rawToken.trim().isNotEmpty) {
+        final token = rawToken.trim();
+        final uri = BackendConfig.api('bubblesplash/progreso/');
 
-      final token = rawToken.trim();
-      final uri = BackendConfig.api('bubblesplash/progreso/');
+        http.Response response = await http.get(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        );
 
-      http.Response response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
-
-      if (response.statusCode == 200) {
-        final dynamic body = jsonDecode(response.body);
-        int backendPoints = 0;
-
-        if (body is Map<String, dynamic>) {
-          final dynamic pointsObj = body['points'];
-          if (pointsObj is Map<String, dynamic>) {
-            backendPoints =
-                int.tryParse(
-                  (pointsObj['upo_int_totalpoints'] ?? '0').toString(),
-                ) ??
-                0;
+        if (response.statusCode == 401 && await AuthService.refreshToken()) {
+          final newToken = prefs.getString('access_token')?.trim();
+          if (newToken != null && newToken.isNotEmpty) {
+            response = await http.get(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': 'Bearer $newToken',
+              },
+            );
           }
         }
 
-        await prefs.setInt(keyPuntos, backendPoints);
-        await prefs.setInt(cacheKey, backendPoints);
-        await prefs.setInt(cacheTimeKey, DateTime.now().millisecondsSinceEpoch);
+        if (response.statusCode == 200) {
+          final dynamic body = jsonDecode(response.body);
+          int backendPoints = 0;
 
-        if (!mounted) return;
-        setState(() {
-          puntos = backendPoints;
-          _actualizarNivelYProgreso();
-        });
-      } else {
-        final int storedPoints = prefs.getInt(keyPuntos) ?? 0;
-        if (!mounted) return;
-        setState(() {
-          puntos = storedPoints;
-          _actualizarNivelYProgreso();
-        });
+          if (body is Map<String, dynamic>) {
+            final dynamic pointsObj = body['points'];
+            if (pointsObj is Map<String, dynamic>) {
+              backendPoints =
+                  int.tryParse(
+                    (pointsObj['upo_int_totalpoints'] ?? '0').toString(),
+                  ) ??
+                  0;
+            }
+          }
+
+          await prefs.setInt(keyPuntos, backendPoints);
+          await prefs.setInt(cacheKey, backendPoints);
+          await prefs.setInt(cacheTimeKey, DateTime.now().millisecondsSinceEpoch);
+
+          if (!mounted) return;
+          setState(() {
+            puntos = backendPoints;
+            _actualizarNivelYProgreso();
+          });
+          return;
+        }
       }
+      // Si no hay token o falla el backend, usa local
+      final int storedPoints = prefs.getInt(keyPuntos) ?? 0;
+      if (!mounted) return;
+      setState(() {
+        puntos = storedPoints;
+        _actualizarNivelYProgreso();
+      });
     } catch (_) {
       final int storedPoints = prefs.getInt(keyPuntos) ?? 0;
       if (!mounted) return;
@@ -609,15 +602,36 @@ class _BeneficiosPageState extends State<BeneficiosPage>
       if (response.statusCode == 200) {
         final dynamic body = jsonDecode(response.body);
 
+        // Soportar tanto lista directa como envoltorios tipo {results: [...]} / {ofertas: [...]} / {data: [...]}.
+        List<dynamic>? rawList;
         if (body is List) {
-          final ofertas = body
-              .whereType<Map<String, dynamic>>()
+          rawList = body;
+        } else if (body is Map<String, dynamic>) {
+          for (final key in ['results', 'ofertas', 'data']) {
+            final value = body[key];
+            if (value is List) {
+              rawList = value;
+              break;
+            }
+          }
+        }
+
+        if (rawList != null) {
+          var ofertas = rawList.whereType<Map<String, dynamic>>().toList();
+
+          // Filtrar por estado ACTIVO si existe el campo, pero si ningún
+          // elemento lo trae, usamos todos para no dejar la sección vacía
+          // cuando el backend cambió el esquema.
+          final filtradas = ofertas
               .where(
                 (o) =>
                     (o['txt_status'] ?? '').toString().toUpperCase() ==
                     'ACTIVO',
               )
               .toList();
+          if (filtradas.isNotEmpty) {
+            ofertas = filtradas;
+          }
 
           await prefs.setString(_ofertasCacheKey, jsonEncode(ofertas));
           await prefs.setInt(_ofertasCacheTimeKey, now);
@@ -923,21 +937,58 @@ class _BeneficiosPageState extends State<BeneficiosPage>
 
                         const SizedBox(height: 22),
 
-                        // ======= OFERTAS ESPECIALES (header)
+                        // ======= OFERTAS ESPECIALES (header visual mejorado)
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              const Expanded(
-                                child: Text(
-                                  'Ofertas Especiales',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w900,
-                                    color: _textDark,
-                                  ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          width: 30,
+                                          height: 30,
+                                          decoration: BoxDecoration(
+                                            color:
+                                                const Color(0xFF0F3D4A).withOpacity(0.08),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                          child: const Icon(
+                                            Icons.local_offer_rounded,
+                                            color: Color(0xFF0F3D4A),
+                                            size: 18,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Text(
+                                          'Ofertas especiales',
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w900,
+                                            letterSpacing: 0.2,
+                                            color: _textDark,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    const Text(
+                                      'Beneficios exclusivos pensados para ti',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: _textMute,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
+                              const SizedBox(width: 12),
                               _OfertasDisponiblesTag(count: _ofertas.length),
                             ],
                           ),
@@ -1212,13 +1263,24 @@ class _OfertasDisponiblesTag extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: const Color(0xFFDBEAFE), width: 1),
       ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Color(0xFF111827),
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.local_offer_rounded,
+            size: 14,
+            color: Color(0xFF1D4ED8),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF111827),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1254,18 +1316,23 @@ class _OfferHighlightCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        // Fondo más "bubble" con toque acuoso, menos de tienda.
+        gradient: const LinearGradient(
+          colors: [Color(0xFFE0F2FE), Color(0xFFECFEFF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x14000000),
-            blurRadius: 14,
-            offset: Offset(0, 8),
+            color: Color(0x14000033),
+            blurRadius: 18,
+            offset: Offset(0, 10),
           ),
         ],
-        border: Border.all(color: const Color(0xFFF1F5F9), width: 1),
+        border: Border.all(color: const Color(0xFFDBEAFE), width: 1),
       ),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1274,7 +1341,7 @@ class _OfferHighlightCard extends StatelessWidget {
             height: 48,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF7C3AED), Color(0xFF22C55E)],
+                colors: [Color(0xFF0F3D4A), Color(0xFF128FA0)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -1295,15 +1362,61 @@ class _OfferHighlightCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF111827),
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF111827),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            if (hasOff)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE0F2FE),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  '${descuentoPercent.toStringAsFixed(0)}% desc.',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF1D4ED8),
+                                  ),
+                                ),
+                              )
+                            else if (puntosReq > 0)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE0F2FE),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  '$puntosReq pts',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF1D4ED8),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                         if (description.trim().isNotEmpty) ...[
                           const SizedBox(height: 4),
@@ -1327,7 +1440,8 @@ class _OfferHighlightCard extends StatelessWidget {
                               _Pill(text: 'Tipo: $tipo', icon: Icons.category),
                             if (hasOff)
                               _Pill(
-                                text: '${descuentoPercent.toStringAsFixed(0)}% OFF',
+                                text:
+                                    'Descuento ${descuentoPercent.toStringAsFixed(0)}%',
                                 icon: Icons.percent,
                               ),
                             if (hasMinSpend)
@@ -1419,7 +1533,11 @@ class RewardCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFFFFF), Color(0xFFF9FAFB)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
         boxShadow: const [
@@ -1453,15 +1571,21 @@ class RewardCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                        color: _textDark,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                              color: _textDark,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -1605,6 +1729,9 @@ class RewardCard extends StatelessWidget {
                       'Accept': 'application/json',
                       'Authorization': 'Bearer $token',
                     },
+                    body: jsonEncode({
+                      'off_int_id': offerId,
+                    }),
                   );
 
                   if (response.statusCode == 401 &&
@@ -1618,14 +1745,48 @@ class RewardCard extends StatelessWidget {
                           'Accept': 'application/json',
                           'Authorization': 'Bearer $newToken',
                         },
+                        body: jsonEncode({
+                          'off_int_id': offerId,
+                        }),
                       );
                     }
                   }
 
                   if (response.statusCode == 200 ||
                       response.statusCode == 201) {
+                    int? ofcIntId;
+                    int? backendPoints;
+
+                    // Intentar extraer ofc_int_id (id del canje) y puntos desde la respuesta
+                    try {
+                      final dynamic decoded = jsonDecode(response.body);
+                      if (decoded is Map<String, dynamic>) {
+                        final dynamic canje = decoded['canje'];
+                        if (canje is Map<String, dynamic>) {
+                          final dynamic rawOfc = canje['ofc_int_id'];
+                          if (rawOfc is int) {
+                            ofcIntId = rawOfc;
+                          } else {
+                            ofcIntId = int.tryParse(rawOfc?.toString() ?? '');
+                          }
+                        }
+
+                        final dynamic points = decoded['points'];
+                        if (points is Map<String, dynamic>) {
+                          final dynamic rawTotal = points['upo_int_totalpoints'];
+                          if (rawTotal is int) {
+                            backendPoints = rawTotal;
+                          } else if (rawTotal != null) {
+                            backendPoints =
+                                int.tryParse(rawTotal.toString());
+                          }
+                        }
+                      }
+                    } catch (_) {}
+
                     if (pointsCost > 0) {
-                      final int newPoints = currentPoints - pointsCost;
+                      final int newPoints =
+                          backendPoints ?? (currentPoints - pointsCost);
                       await prefs.setInt(keyPuntos, newPoints);
                       onPointsChanged?.call();
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -1646,7 +1807,11 @@ class RewardCard extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => MenuPage(descuento: descuento),
+                        builder: (context) => MenuPage(
+                          descuento: descuento,
+                          // Usar el id REAL del canje (ofc_int_id), no el id de la oferta
+                          ofcIntId: ofcIntId,
+                        ),
                       ),
                     );
                   } else {

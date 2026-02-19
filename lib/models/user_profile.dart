@@ -11,6 +11,7 @@ class UserProfile {
   String? educationLevel;
   double? longitude;
   double? latitude;
+  String? celular;
   String fcmToken;
 
   UserProfile({
@@ -26,6 +27,7 @@ class UserProfile {
     this.educationLevel,
     this.longitude,
     this.latitude,
+    this.celular,
     required this.fcmToken,
   });
 
@@ -47,6 +49,7 @@ class UserProfile {
       latitude: (json['use_double_latitude'] is num)
           ? (json['use_double_latitude'] as num).toDouble()
           : null,
+      celular: json['use_txt_celular'],
       fcmToken: fcmToken,
     );
   }

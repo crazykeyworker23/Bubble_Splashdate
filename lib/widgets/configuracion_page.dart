@@ -5,6 +5,7 @@ import 'mi_perfil_page.dart';
 import 'seguridad_page.dart';
 import 'terminos_page.dart';
 import 'eliminar_cuenta_page.dart';
+import 'canjear_puntos_page.dart';
 
 class ConfiguracionPage extends StatelessWidget {
   const ConfiguracionPage({super.key});
@@ -15,6 +16,15 @@ class ConfiguracionPage extends StatelessWidget {
 
     await prefs.setBool('isLoggedIn', false);
     await prefs.remove('fcm_token');
+
+    // Limpia completamente la sesión para que el saldo sea por usuario
+    await prefs.remove('access_token');
+    await prefs.remove('refresh_token');
+    await prefs.remove('google_id_token');
+    await prefs.remove('google_name');
+    await prefs.remove('google_email');
+    await prefs.remove('google_photo');
+    await prefs.remove('google_id');
 
     if (!remember) {
       await prefs.remove('savedEmail');
@@ -135,6 +145,15 @@ class ConfiguracionPage extends StatelessWidget {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const SeguridadPage()),
+              ),
+            ),
+            _divider(),
+            _opcionItem(
+              icon: Icons.card_giftcard_outlined,
+              text: 'Canjear puntos',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CanjearPuntosPage()),
               ),
             ),
             _divider(),

@@ -6,6 +6,12 @@ import '../../constants/api_constants.dart';
 import 'package:http/http.dart' as http;
 import 'package:bubblesplash/services/auth_service.dart';
 
+import 'dart:io';
+import 'package:open_file/open_file.dart';
+import 'package:path_provider/path_provider.dart';
+
+import 'package:share_plus/share_plus.dart';
+
 import 'detail_movimiento_page.dart';
 import 'movimiento.dart' as simple;
 
@@ -328,9 +334,73 @@ class _MovimientosPageState extends State<MovimientosPage> {
                     subtitle: Text(
                       '$metodo | $fecha\nRef: $referencia',
                     ),
-                    trailing: Text(
-                      codigo,
-                      style: const TextStyle(fontSize: 12),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          codigo,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        if (tituloBase == 'RECARGA')
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.download_rounded, color: Colors.green),
+                                  tooltip: 'Ver comprobante',
+                                  onPressed: () async {
+                                    try {
+                                      final dir = await getApplicationDocumentsDirectory();
+                                      final id = (m['referencia'] ?? '').toString();
+                                      final file = File("${dir.path}/comprobante_recarga_$id.pdf");
+                                      if (await file.exists()) {
+                                        await OpenFile.open(file.path);
+                                      } else {
+                                        // Si no existe, intentar con el nombre genérico
+                                        final generic = File("${dir.path}/comprobante_recarga.pdf");
+                                        if (await generic.exists()) {
+                                          await OpenFile.open(generic.path);
+                                        } else {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('No se encontró el comprobante PDF.')),
+                                          );
+                                        }
+                                      }
+                                    } catch (e) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Error al abrir comprobante: $e')),
+                                      );
+                                    }
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.share, color: Colors.blue),
+                                  tooltip: 'Compartir comprobante',
+                                  onPressed: () async {
+                                    try {
+                                      final dir = await getApplicationDocumentsDirectory();
+                                      final id = (m['referencia'] ?? '').toString();
+                                      File file = File("${dir.path}/comprobante_recarga_$id.pdf");
+                                      if (!await file.exists()) {
+                                        file = File("${dir.path}/comprobante_recarga.pdf");
+                                      }
+                                      if (await file.exists()) {
+                                        await Share.shareXFiles([XFile(file.path)], text: 'Comprobante de recarga');
+                                      } else {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('No se encontró el comprobante PDF para compartir.')),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Error al compartir comprobante: $e')),
+                                      );
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                      ],
                     ),
                     isThreeLine: true,
                     onTap: () {

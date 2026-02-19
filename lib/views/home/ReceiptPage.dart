@@ -85,6 +85,26 @@ class _ReceiptPageState extends State<ReceiptPage> {
     return double.tryParse(value?.toString() ?? '') ?? 0.0;
   }
 
+  String _formatToppingsForUi(dynamic raw) {
+    if (raw is List) {
+      if (raw.isEmpty) return '';
+      if (raw.first is String) {
+        return raw
+            .map((e) => e.toString())
+            .where((name) => name.trim().isNotEmpty)
+            .join(', ');
+      }
+      if (raw.first is Map) {
+        return raw
+            .map((e) => (e is Map ? (e['name'] ?? '').toString() : ''))
+            .where((name) => name.trim().isNotEmpty)
+            .join(', ');
+      }
+      return raw.map((e) => e.toString()).join(', ');
+    }
+    return '';
+  }
+
   /// Total real a cobrar: suma de (precio unitario * cantidad)
   /// Usamos los ítems para evitar inconsistencias si `widget.subtotal` viene mal.
   double get total {
@@ -166,16 +186,7 @@ class _ReceiptPageState extends State<ReceiptPage> {
       await prefs.setStringList(keyMovs, data);
     }
 
-    // Descontar del saldo disponible (si el saldo es menor, se permite ir a cero)
-    final String? keySaldo = user != null ? 'saldo_${user.uid}' : null;
-    final double saldoActual =
-        keySaldo != null ? (prefs.getDouble(keySaldo) ?? 0.0) : 0.0;
-    final nuevoSaldo = (saldoActual - total).clamp(0.0, double.infinity);
-    if (keySaldo != null) {
-      await prefs.setDouble(keySaldo, nuevoSaldo);
-    }
-
-    // Acumular puntos por compra: 1 punto por cada sol del total
+    // Acumular puntos por compra: 1 punto por cada sol de6l total
     final String? keyPuntos = user != null ? 'puntos_${user.uid}' : null;
     final int puntosActuales =
         keyPuntos != null ? (prefs.getInt(keyPuntos) ?? 0) : 0;
@@ -375,13 +386,12 @@ class _ReceiptPageState extends State<ReceiptPage> {
                 final List<dynamic> rawToppings = (item['toppings'] is List)
                     ? item['toppings']
                     : [];
-                final List<String> toppings = rawToppings
-                    .map((e) => e.toString())
-                    .toList();
+                final String toppingsText =
+                    _formatToppingsForUi(rawToppings).trim();
                 final List<String> details = [
                   if (size.isNotEmpty) size,
                   if (ice.isNotEmpty) ice,
-                  ...toppings,
+                  if (toppingsText.isNotEmpty) toppingsText,
                 ];
                 return pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -790,14 +800,13 @@ class _ReceiptPageState extends State<ReceiptPage> {
                         final String ice = item['ice'] ?? '';
                         final List<dynamic> rawToppings =
                             (item['toppings'] is List) ? item['toppings'] : [];
-                        final List<String> toppings = rawToppings
-                            .map((e) => e.toString())
-                            .toList();
+                        final String toppingsText =
+                            _formatToppingsForUi(rawToppings).trim();
 
                         final List<String> details = [
                           if (size.isNotEmpty) size,
                           if (ice.isNotEmpty) ice,
-                          ...toppings,
+                          if (toppingsText.isNotEmpty) toppingsText,
                         ];
 
                         return Padding(

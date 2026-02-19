@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
-import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -28,181 +27,6 @@ final CacheManager kBannerCacheManager = CacheManager(
     fileService: HttpFileService(),
   ),
 );
-
-/// ===============================
-/// BUBBLE ANIMATION (multi-color premium)
-/// ===============================
-/// 
-/// 
-class _BubbleRefreshOverlay extends StatefulWidget {
-  final bool visible;
-  const _BubbleRefreshOverlay({required this.visible});
-
-  @override
-  State<_BubbleRefreshOverlay> createState() => _BubbleRefreshOverlayState();
-}
-
-class _BubbleRefreshOverlayState extends State<_BubbleRefreshOverlay>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final List<_BubbleData> _bubbles;
-
-  // 🎨 Colores Splash Bubble
-  static const List<Color> _palette = [
-    Color(0xFF22D3EE), // celeste
-    Color(0xFF34D399), // verde
-    Color(0xFFFFA94D), // anaranjado
-  ];
-
-  // ✅ “Filas” (columnas)
-  static const int _rows = 9;
-
-  // ✅ cuántas burbujas por fila (más = más visible/denso)
-  static const int _perRow = 9;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    )..repeat();
-
-    final total = _rows * _perRow;
-    _bubbles = List.generate(
-      total,
-      (i) => _BubbleData.fromRow(i, _rows, _perRow, _palette),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!widget.visible) return const SizedBox.shrink();
-    final size = MediaQuery.of(context).size;
-
-    return IgnorePointer(
-      child: SizedBox.expand(
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (_, __) {
-            final t = _controller.value;
-
-            return Stack(
-              children: _bubbles.map((b) {
-                final progress = (t + b.offset) % 1.0;
-
-                // ✅ Desde abajo -> arriba (pantalla completa)
-                final startY = size.height + 90; // más abajo para que “nazcan” claro
-                final endY = -b.radius - 90;     // salen arriba
-                final dy = lerpDouble(
-                  startY,
-                  endY,
-                  (progress * b.speed).clamp(0.0, 1.0),
-                )!;
-
-                // ✅ x fijo por fila
-                final dx = (b.x * size.width)
-                    .clamp(10.0, size.width - 10.0);
-
-                // ✅ Opacidad más alta (que se noten)
-                final fade = (1.0 - progress).clamp(0.0, 1.0);
-                final opacity = (fade * 0.85).clamp(0.20, 0.85); // mínimo 0.20
-
-                return Positioned(
-                  left: dx - b.radius / 2,
-                  top: dy,
-                  child: Opacity(
-                    opacity: opacity,
-                    child: Container(
-                      width: b.radius,
-                      height: b.radius,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-
-                        // ✅ Relleno más marcado
-                        color: b.color.withOpacity(0.30),
-
-                        // ✅ Borde más fuerte y más grueso
-                        border: Border.all(
-                          color: b.color.withOpacity(0.65),
-                          width: 1.8,
-                        ),
-
-                        // ✅ Glow intenso + halo
-                        boxShadow: [
-                          BoxShadow(
-                            color: b.color.withOpacity(0.45),
-                            blurRadius: 18,
-                            spreadRadius: 2,
-                          ),
-                          BoxShadow(
-                            color: Colors.white.withOpacity(0.18),
-                            blurRadius: 10,
-                            spreadRadius: 0,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class _BubbleData {
-  final double x; // centro de fila (0..1)
-  final double radius;
-  final double speed;
-  final double offset;
-  final Color color;
-
-  _BubbleData(this.x, this.radius, this.speed, this.offset, this.color);
-
-  factory _BubbleData.fromRow(
-    int index,
-    int rows,
-    int perRow,
-    List<Color> palette,
-  ) {
-    final row = index % rows;          // fila/columna
-    final layer = index ~/ rows;       // 0..perRow-1
-
-    final spacing = 1.0 / rows;
-
-    // ✅ centro exacto de la fila + pequeña variación por layer (no se enciman)
-    final baseX = spacing * row + spacing / 2;
-    final jitter = (layer - (perRow - 1) / 2) * (spacing * 0.18);
-    final x = (baseX + jitter).clamp(0.06, 0.94);
-
-    // ✅ color fijo por fila (bonito)
-    final color = palette[row % palette.length];
-
-    // ✅ tamaños MÁS GRANDES para que se noten
-    final radius = 26.0 + (layer * 10.0); // 26, 36, 46
-
-    // ✅ velocidad con variación ligera
-    final speed = 0.85 + (layer * 0.18);
-
-    // ✅ offsets para que no salgan todas juntas
-    final offset = layer * 0.28;
-
-    return _BubbleData(x, radius, speed, offset, color);
-  }
-}
-
-
 
 class _HomeBanner {
   final int id;
@@ -249,7 +73,7 @@ class _InicioPageState extends State<InicioPage> {
   int _cartCount = 0;
 
   // =============================
-  //  FAB DRAGGABLE + PERSISTENTE
+  // ✅ FAB DRAGGABLE + PERSISTENTE
   // =============================
   static const String _fabXFracKey = 'inicio_cart_fab_x_frac';
   static const String _fabYFracKey = 'inicio_cart_fab_y_frac';
@@ -333,7 +157,6 @@ class _InicioPageState extends State<InicioPage> {
     final x = prefs.getDouble(_fabXFracKey);
     final y = prefs.getDouble(_fabYFracKey);
     if (!mounted) return;
-
     setState(() {
       _fabXFrac = x;
       _fabYFrac = y;
@@ -494,20 +317,16 @@ class _InicioPageState extends State<InicioPage> {
 
         setState(() => _banners = banners);
 
-        // ✅ Precache + prefetch (carga más rápida) usando TU cacheManager
+        // ✅ Precache + prefetch (carga más rápida)
         for (final b in banners) {
           final u = b.imageUrl.trim();
           if (u.startsWith('http')) {
-            precacheImage(
-              CachedNetworkImageProvider(u, cacheManager: kBannerCacheManager),
-              context,
-            );
+            precacheImage(CachedNetworkImageProvider(u), context);
             unawaited(kBannerCacheManager.downloadFile(u));
           }
         }
       } else if (response.statusCode == 401) {
-        setState(
-            () => _homeError = 'Sesión expirada. Inicia sesión nuevamente.');
+        setState(() => _homeError = 'Sesión expirada. Inicia sesión nuevamente.');
       } else {
         setState(() => _homeError =
             'Error cargando home (${response.statusCode}). Intenta nuevamente.');
@@ -635,8 +454,7 @@ class _InicioPageState extends State<InicioPage> {
                             child: Center(
                               child: Text(
                                 'No hay banners disponibles en este momento.',
-                                style:
-                                    TextStyle(fontSize: 14, color: Colors.grey),
+                                style: TextStyle(fontSize: 14, color: Colors.grey),
                               ),
                             ),
                           ),
@@ -686,19 +504,16 @@ class _InicioPageState extends State<InicioPage> {
                               : Column(
                                   children: _banners.take(3).map((b) {
                                     return Padding(
-                                      padding:
-                                          const EdgeInsets.only(bottom: 12),
+                                      padding: const EdgeInsets.only(bottom: 12),
                                       child: _PromoListTile(
                                         banner: b,
                                         onTap: () {
                                           Navigator.push(
                                             context,
                                             MaterialPageRoute(
-                                              builder: (_) =>
-                                                  _BannerFullScreenPage(
+                                              builder: (_) => _BannerFullScreenPage(
                                                 banners: _banners,
-                                                initialIndex:
-                                                    _banners.indexOf(b),
+                                                initialIndex: _banners.indexOf(b),
                                               ),
                                             ),
                                           );
@@ -714,9 +529,6 @@ class _InicioPageState extends State<InicioPage> {
                     ],
                   ),
                 ),
-
-                // Overlay de burbujas durante el refresco (cubre todo)
-                _BubbleRefreshOverlay(visible: _isLoadingHome),
 
                 // ✅ FAB DRAGGABLE (carrito solo aquí)
                 AnimatedPositioned(
@@ -744,10 +556,8 @@ class _InicioPageState extends State<InicioPage> {
                       final delta = details.globalPosition - startGlobal;
                       if (!_didDragFab && delta.distance > 3) _didDragFab = true;
 
-                      final newX =
-                          (startOffset.dx + delta.dx).clamp(minX, maxX);
-                      final newY =
-                          (startOffset.dy + delta.dy).clamp(minY, maxY);
+                      final newX = (startOffset.dx + delta.dx).clamp(minX, maxX);
+                      final newY = (startOffset.dy + delta.dy).clamp(minY, maxY);
 
                       setState(() => _fabOffset = Offset(newX, newY));
                     },
@@ -1034,7 +844,6 @@ class _PremiumBannerCarouselState extends State<_PremiumBannerCarousel> {
 
     _controller.addListener(() {
       final p = _controller.page ?? 0.0;
-      if (!mounted) return;
       setState(() => _page = p);
       _index = p.round().clamp(0, (widget.banners.length - 1).clamp(0, 9999));
     });
@@ -1167,7 +976,7 @@ class _PremiumBannerCard extends StatelessWidget {
           children: [
             _NetworkImagePremium(url: banner.imageUrl, showFull: true),
 
-            // overlay suave
+            // overlay suave (amigable)
             Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -1185,7 +994,7 @@ class _PremiumBannerCard extends StatelessWidget {
               ),
             ),
 
-            // ✅ texto con scroll
+            // ✅ texto completo con scroll (si es largo)
             Positioned(
               left: 14,
               right: 14,
@@ -1204,7 +1013,9 @@ class _PremiumBannerCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        banner.title.isNotEmpty ? banner.title : "Promoción especial",
+                        banner.title.isNotEmpty
+                            ? banner.title
+                            : "Promoción especial",
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w900,
@@ -1326,7 +1137,9 @@ class _PromoListTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      banner.subtitle.isNotEmpty ? banner.subtitle : "Toca para ver",
+                      banner.subtitle.isNotEmpty
+                          ? banner.subtitle
+                          : "Toca para ver",
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -1570,7 +1383,8 @@ class _SoftShimmerPlaceholder extends StatefulWidget {
   const _SoftShimmerPlaceholder({required this.small});
 
   @override
-  State<_SoftShimmerPlaceholder> createState() => _SoftShimmerPlaceholderState();
+  State<_SoftShimmerPlaceholder> createState() =>
+      _SoftShimmerPlaceholderState();
 }
 
 class _SoftShimmerPlaceholderState extends State<_SoftShimmerPlaceholder>

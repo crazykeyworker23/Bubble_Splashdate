@@ -233,7 +233,11 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
+        final dynamic decoded = jsonDecode(res.body);
+        if (decoded is! Map<String, dynamic>) {
+          throw Exception('Respuesta inválida del backend de login.');
+        }
+
         final prefs = await SharedPreferences.getInstance();
 
         await prefs.remove('google_name');
@@ -242,20 +246,45 @@ class _LoginPageState extends State<LoginPage> {
         await prefs.remove('google_id');
         await prefs.remove('google_id_token');
 
-        if (data['access'] != null) {
-          await prefs.setString('access_token', data['access']);
-        }
-        if (data['refresh'] != null) {
-          await prefs.setString('refresh_token', data['refresh']);
+        // Permite que el backend envíe los tokens tanto en la raíz
+        // como dentro de una clave "data", y con distintos nombres.
+        final dynamic tokenContainer =
+            (decoded['data'] is Map<String, dynamic>) ? decoded['data'] : decoded;
+
+        final dynamic accessRaw = tokenContainer['access'] ??
+            tokenContainer['access_token'] ??
+            tokenContainer['token'];
+        final dynamic refreshRaw =
+            tokenContainer['refresh'] ?? tokenContainer['refresh_token'];
+
+        final String accessToken = accessRaw?.toString().trim() ?? '';
+        final String refreshToken = refreshRaw?.toString().trim() ?? '';
+
+        if (accessToken.isEmpty) {
+          throw Exception('No se recibió access_token desde el backend de login.');
         }
 
-        if (data['user'] != null) {
-          if (data['user']['use_txt_fullname'] != null) {
-            await prefs.setString('google_name', data['user']['use_txt_fullname']);
-            await prefs.setString('use_txt_fullname', data['user']['use_txt_fullname']);
+        await prefs.setString('access_token', accessToken);
+        if (refreshToken.isNotEmpty) {
+          await prefs.setString('refresh_token', refreshToken);
+        }
+
+        // Datos de usuario: pueden venir en tokenContainer['user'] o en decoded['user'].
+        final dynamic userData =
+            (tokenContainer['user'] is Map<String, dynamic>)
+                ? tokenContainer['user']
+                : decoded['user'];
+
+        if (userData is Map<String, dynamic>) {
+          final fullName = userData['use_txt_fullname']?.toString();
+          final emailUser = userData['use_txt_email']?.toString();
+
+          if (fullName != null && fullName.trim().isNotEmpty) {
+            await prefs.setString('google_name', fullName);
+            await prefs.setString('use_txt_fullname', fullName);
           }
-          if (data['user']['use_txt_email'] != null) {
-            await prefs.setString('google_email', data['user']['use_txt_email']);
+          if (emailUser != null && emailUser.trim().isNotEmpty) {
+            await prefs.setString('google_email', emailUser);
           }
         }
 
@@ -312,12 +341,25 @@ class _LoginPageState extends State<LoginPage> {
         serviceCode: kServiceCode,
       );
 
+      // Extraer tokens del backend (pueden venir anidados en "data")
       final prefs = await SharedPreferences.getInstance();
-      if (backendData['access'] != null) {
-        await prefs.setString('access_token', backendData['access']);
+
+      final dynamic tokenContainer =
+          (backendData['data'] is Map<String, dynamic>) ? backendData['data'] : backendData;
+
+      final dynamic accessRaw = tokenContainer['access'] ?? tokenContainer['access_token'] ?? tokenContainer['token'];
+      final dynamic refreshRaw = tokenContainer['refresh'] ?? tokenContainer['refresh_token'];
+
+      final String accessToken = accessRaw?.toString().trim() ?? '';
+      final String refreshToken = refreshRaw?.toString().trim() ?? '';
+
+      if (accessToken.isEmpty) {
+        throw Exception('No se recibió access_token desde el backend para Google.');
       }
-      if (backendData['refresh'] != null) {
-        await prefs.setString('refresh_token', backendData['refresh']);
+
+      await prefs.setString('access_token', accessToken);
+      if (refreshToken.isNotEmpty) {
+        await prefs.setString('refresh_token', refreshToken);
       }
 
       await _saveGoogleLogin(

@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_const_constructors, unused_import
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -44,6 +46,7 @@ class _PagosPageState extends State<PagosPage> {
   bool _mostrarSaldo = true;
   double saldoActual = 0.0;
   bool _loadingSaldo = true;
+  Future<List<Map<String, dynamic>>>? _movimientosPreviewFuture;
 
   // Datos de la empresa / cliente para el comprobante
   final String _razonSocial = "BubbleSplash SAC";
@@ -56,6 +59,7 @@ class _PagosPageState extends State<PagosPage> {
     super.initState();
     _cargarSaldo();
     _cargarNombreCliente();
+    _movimientosPreviewFuture = _cargarMovimientosPreview();
   }
 
   // =========================
@@ -97,7 +101,6 @@ class _PagosPageState extends State<PagosPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Handle
                   Container(
                     width: 46,
                     height: 5,
@@ -107,8 +110,6 @@ class _PagosPageState extends State<PagosPage> {
                     ),
                   ),
                   const SizedBox(height: 14),
-
-                  // Icon
                   Container(
                     width: 64,
                     height: 64,
@@ -119,7 +120,6 @@ class _PagosPageState extends State<PagosPage> {
                     child: Icon(icon, size: 34, color: accent),
                   ),
                   const SizedBox(height: 14),
-
                   Text(
                     title,
                     textAlign: TextAlign.center,
@@ -130,7 +130,6 @@ class _PagosPageState extends State<PagosPage> {
                     ),
                   ),
                   const SizedBox(height: 10),
-
                   Text(
                     message,
                     textAlign: TextAlign.center,
@@ -141,7 +140,6 @@ class _PagosPageState extends State<PagosPage> {
                     ),
                   ),
                   const SizedBox(height: 18),
-
                   SizedBox(
                     width: double.infinity,
                     height: 48,
@@ -178,6 +176,9 @@ class _PagosPageState extends State<PagosPage> {
       _cargarSaldo(),
       _cargarNombreCliente(),
     ]);
+    setState(() {
+      _movimientosPreviewFuture = _cargarMovimientosPreview();
+    });
   }
 
   Future<void> _cargarSaldo() async {
@@ -196,7 +197,7 @@ class _PagosPageState extends State<PagosPage> {
       }
 
       final token = rawToken.trim();
-        final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/me/');
+      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/me/');
 
       http.Response response = await http.get(
         uri,
@@ -207,7 +208,6 @@ class _PagosPageState extends State<PagosPage> {
         },
       );
 
-      // Si el token expiró (401), intentamos refrescar y reintentar una vez
       if (response.statusCode == 401 && await AuthService.refreshToken()) {
         final newToken = prefs.getString('access_token')?.trim();
         if (newToken != null && newToken.isNotEmpty) {
@@ -309,7 +309,6 @@ class _PagosPageState extends State<PagosPage> {
               title: const Text(
                 'Mi Wallet',
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: Colors.white),
-                
               ),
               actions: [
                 IconButton(
@@ -318,7 +317,11 @@ class _PagosPageState extends State<PagosPage> {
                     _mostrarSaldo ? Ionicons.eye_outline : Ionicons.eye_off_outline,
                     color: Colors.white,
                   ),
-                  onPressed: () => setState(() => _mostrarSaldo = !_mostrarSaldo),
+                  onPressed: () {
+                    setState(() {
+                      _mostrarSaldo = !_mostrarSaldo;
+                    });
+                  },
                 ),
                 const SizedBox(width: 4),
               ],
@@ -411,10 +414,14 @@ class _PagosPageState extends State<PagosPage> {
                                   ),
                                 ),
                                 const SizedBox(width: 10),
-                                _PillButton(
-                                  text: 'Recargar',
-                                  icon: Icons.add_rounded,
-                                  onTap: _mostrarPopupRecargaPremium,
+                                // Botón de recarga oculto (se mantiene el código, solo no se muestra)
+                                Visibility(
+                                  visible: false,
+                                  child: _PillButton(
+                                    text: 'Recargar',
+                                    icon: Icons.add_rounded,
+                                    onTap: _mostrarPopupRecargaPremium,
+                                  ),
                                 ),
                               ],
                             ),
@@ -426,13 +433,11 @@ class _PagosPageState extends State<PagosPage> {
                 ),
               ),
             ),
-
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
               sliver: SliverList(
                 delegate: SliverChildListDelegate(
                   [
-                    // ====== ACCIONES ======
                     Row(
                       children: [
                         Expanded(
@@ -464,10 +469,7 @@ class _PagosPageState extends State<PagosPage> {
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 18),
-
-                    // ====== MOVIMIENTOS PREVIEW ======
                     _SectionHeader(
                       title: 'Movimientos',
                       trailingText: 'Ver todo',
@@ -479,10 +481,9 @@ class _PagosPageState extends State<PagosPage> {
                       },
                     ),
                     const SizedBox(height: 10),
-
                     _PremiumCard(
                       child: FutureBuilder<List<Map<String, dynamic>>>(
-                        future: _cargarMovimientosPreview(),
+                        future: _movimientosPreviewFuture,
                         builder: (context, snapshot) {
                           if (snapshot.connectionState == ConnectionState.waiting) {
                             return Column(
@@ -530,7 +531,6 @@ class _PagosPageState extends State<PagosPage> {
           ],
         ),
       ),
-
       floatingActionButton: CartFabButton(
         count: 0, // TODO: conecta tu contador real
         onPressed: () => Navigator.pushNamed(context, '/cart'),
@@ -540,9 +540,9 @@ class _PagosPageState extends State<PagosPage> {
     );
   }
 
-  // =========================
-  // ✅ RECARGA PREMIUM (BottomSheet)
-  // =========================
+  // ===========================================================
+  // ✅ RECARGA PREMIUM PRO (BottomSheet mejorado)
+  // ===========================================================
   void _mostrarPopupRecargaPremium() {
     double? montoSeleccionado;
     String tipoTransferencia = "Billetera Digital";
@@ -553,74 +553,102 @@ class _PagosPageState extends State<PagosPage> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
+      barrierColor: Colors.black.withOpacity(0.45),
       builder: (sheetCtx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            void setMonto(double? v) {
+              setModalState(() {
+                montoSeleccionado = v;
+                if (v != null) montoController.text = v.toStringAsFixed(0);
+              });
+            }
+
             Widget buildTransferExtra() {
               if (tipoTransferencia == "Billetera Digital") {
-                return _InfoBox(
+                return _PremiumInfoCard(
                   icon: Icons.account_balance_wallet_rounded,
-                  title: 'Billetera Digital',
-                  message:
-                      'Recarga con tu billetera digital vinculada. Sigue los pasos para completar el pago.',
+                  title: "Billetera Digital",
+                  subtitle: "Confirma el monto y finaliza el pago en segundos.",
                   accent: accentBlue,
-                );
-              }
-              if (tipoTransferencia == "Transferencia Bancaria") {
-                return _InfoBox(
-                  icon: Icons.account_balance_rounded,
-                  title: 'Transferencia Bancaria',
-                  message:
-                      'Banco: BCP\nCuenta: 123-45678901-0-12\nTitular: Bubble Tea SAC',
-                  accent: Colors.black87,
-                );
-              }
-              // Otra billetera
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Elige tu billetera',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
+                  child: Row(
+                    children: const [
                       Expanded(
-                        child: ChoiceChip(
-                          label: const Text("Yape"),
-                          selected: metodoOtraBilletera == "Yape",
-                          selectedColor: accentBlue,
-                          backgroundColor: Colors.black.withOpacity(0.06),
-                          labelStyle: TextStyle(
-                            color: metodoOtraBilletera == "Yape" ? Colors.white : Colors.black87,
-                            fontWeight: FontWeight.w800,
-                          ),
-                          onSelected: (_) => setModalState(() => metodoOtraBilletera = "Yape"),
+                        child: _MiniStatPill(
+                          label: "Comisión",
+                          value: "S/ 0.00",
+                          accent: Colors.green,
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      SizedBox(width: 10),
                       Expanded(
-                        child: ChoiceChip(
-                          label: const Text("Plin"),
-                          selected: metodoOtraBilletera == "Plin",
-                          selectedColor: accentBlue,
-                          backgroundColor: Colors.black.withOpacity(0.06),
-                          labelStyle: TextStyle(
-                            color: metodoOtraBilletera == "Plin" ? Colors.white : Colors.black87,
-                            fontWeight: FontWeight.w800,
-                          ),
-                          onSelected: (_) => setModalState(() => metodoOtraBilletera = "Plin"),
+                        child: _MiniStatPill(
+                          label: "Tiempo",
+                          value: "Instantáneo",
+                          accent: Colors.deepPurple,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Escanea el QR o usa el número asociado para completar la recarga.',
-                    style: TextStyle(color: Colors.black.withOpacity(0.55), fontWeight: FontWeight.w600),
+                );
+              }
+
+              if (tipoTransferencia == "Transferencia Bancaria") {
+                return _PremiumInfoCard(
+                  icon: Icons.account_balance_rounded,
+                  title: "Transferencia Bancaria",
+                  subtitle: "Realiza la transferencia y conserva tu referencia.",
+                  accent: Colors.black87,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      SizedBox(height: 8),
+                      _KeyValueLine(k: "Banco", v: "BCP"),
+                      _KeyValueLine(k: "Cuenta", v: "123-45678901-0-12"),
+                      _KeyValueLine(k: "Titular", v: "BubbleSplash SAC"),
+                    ],
                   ),
-                ],
+                );
+              }
+
+              return _PremiumInfoCard(
+                icon: Icons.qr_code_rounded,
+                title: "Otra billetera",
+                subtitle: "Elige tu billetera y completa la recarga con QR o número.",
+                accent: accentBlue,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _BigChoiceChip(
+                            text: "Yape",
+                            selected: metodoOtraBilletera == "Yape",
+                            onTap: () => setModalState(() => metodoOtraBilletera = "Yape"),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _BigChoiceChip(
+                            text: "Plin",
+                            selected: metodoOtraBilletera == "Plin",
+                            onTap: () => setModalState(() => metodoOtraBilletera = "Plin"),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      "Tip: usa el mismo titular/nombre para evitar rechazos.",
+                      style: TextStyle(
+                        color: Colors.black.withOpacity(0.55),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
               );
             }
 
@@ -634,16 +662,17 @@ class _PagosPageState extends State<PagosPage> {
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
+                    borderRadius: BorderRadius.circular(26),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.18),
-                        blurRadius: 24,
-                        offset: const Offset(0, 10),
+                        color: Colors.black.withOpacity(0.22),
+                        blurRadius: 28,
+                        offset: const Offset(0, 14),
                       ),
                     ],
                   ),
                   child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
                       child: Column(
@@ -651,8 +680,8 @@ class _PagosPageState extends State<PagosPage> {
                         children: [
                           Center(
                             child: Container(
-                              width: 46,
-                              height: 5,
+                              width: 52,
+                              height: 6,
                               decoration: BoxDecoration(
                                 color: Colors.black.withOpacity(0.12),
                                 borderRadius: BorderRadius.circular(99),
@@ -661,38 +690,104 @@ class _PagosPageState extends State<PagosPage> {
                           ),
                           const SizedBox(height: 14),
 
-                          Row(
-                            children: [
-                              const Expanded(
-                                child: Text(
-                                  'Recargar saldo',
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                                ),
+                          // Header premium
+                          Container(
+                            padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF0F3D4A), Color(0xFF128FA0)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
                               ),
-                              IconButton(
-                                onPressed: () => Navigator.pop(sheetCtx),
-                                icon: const Icon(Icons.close_rounded),
-                              )
-                            ],
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 46,
+                                  height: 46,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.14),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.white.withOpacity(0.18)),
+                                  ),
+                                  child: const Icon(Icons.add_card_rounded, color: Colors.white),
+                                ),
+                                const SizedBox(width: 12),
+                                const Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        "Recargar saldo",
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                      SizedBox(height: 4),
+                                      Text(
+                                        "Elige un monto y método de recarga",
+                                        style: TextStyle(
+                                          color: Colors.white70,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () => Navigator.pop(sheetCtx),
+                                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                                ),
+                              ],
+                            ),
                           ),
 
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 14),
 
+                          // Saldo actual
                           _PremiumCard(
                             padding: const EdgeInsets.all(14),
                             child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  'Saldo actual',
-                                  style: TextStyle(
-                                    color: Colors.black.withOpacity(0.55),
-                                    fontWeight: FontWeight.w700,
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.04),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: const Icon(Icons.account_balance_wallet_rounded, color: mainColor),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        "Saldo actual",
+                                        style: TextStyle(
+                                          color: Colors.black.withOpacity(0.55),
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        "S/ ${saldoActual.toStringAsFixed(2)}",
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 18,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                Text(
-                                  'S/ ${saldoActual.toStringAsFixed(2)}',
-                                  style: const TextStyle(fontWeight: FontWeight.w900),
+                                const _MiniStatPill(
+                                  label: "Puntos",
+                                  value: "+5",
+                                  accent: Colors.orange,
                                 ),
                               ],
                             ),
@@ -705,26 +800,20 @@ class _PagosPageState extends State<PagosPage> {
                           Wrap(
                             spacing: 10,
                             runSpacing: 10,
-                            children: [50, 100, 200, 500].map((monto) {
-                              final isSelected = montoSeleccionado == monto;
-                              return ChoiceChip(
-                                label: Text("S/ $monto"),
+                            children: [20, 50, 100, 200, 500].map((monto) {
+                              final isSelected = montoSeleccionado == monto.toDouble();
+                              return _AmountChip(
+                                amount: monto,
                                 selected: isSelected,
-                                selectedColor: accentBlue,
-                                backgroundColor: Colors.black.withOpacity(0.06),
-                                labelStyle: TextStyle(
-                                  color: isSelected ? Colors.white : Colors.black87,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                                onSelected: (_) {
-                                  setModalState(() {
-                                    if (isSelected) {
+                                onTap: () {
+                                  if (isSelected) {
+                                    setModalState(() {
                                       montoSeleccionado = null;
-                                    } else {
-                                      montoSeleccionado = monto.toDouble();
                                       montoController.clear();
-                                    }
-                                  });
+                                    });
+                                  } else {
+                                    setMonto(monto.toDouble());
+                                  }
                                 },
                               );
                             }).toList(),
@@ -738,16 +827,23 @@ class _PagosPageState extends State<PagosPage> {
                             controller: montoController,
                             keyboardType: TextInputType.number,
                             decoration: InputDecoration(
-                              hintText: 'Ingresa un monto',
+                              prefixIcon: const Icon(Icons.payments_rounded),
+                              prefixText: "S/ ",
+                              prefixStyle: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                color: Colors.black87,
+                              ),
+                              hintText: 'Ej. 35',
                               filled: true,
                               fillColor: Colors.black.withOpacity(0.04),
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(16),
                                 borderSide: BorderSide.none,
                               ),
                             ),
                             onChanged: (value) {
-                              setModalState(() => montoSeleccionado = double.tryParse(value));
+                              final v = double.tryParse(value);
+                              setModalState(() => montoSeleccionado = v);
                             },
                           ),
 
@@ -756,7 +852,7 @@ class _PagosPageState extends State<PagosPage> {
                           const Text('Tipo de transferencia', style: TextStyle(fontWeight: FontWeight.w900)),
                           const SizedBox(height: 10),
 
-                          _SegmentedChips(
+                          _PremiumTabs(
                             value: tipoTransferencia,
                             options: const [
                               "Billetera Digital",
@@ -770,39 +866,41 @@ class _PagosPageState extends State<PagosPage> {
                           buildTransferExtra(),
                           const SizedBox(height: 16),
 
-                          SizedBox(
-                            width: double.infinity,
-                            height: 52,
-                            child: ElevatedButton(
-                              onPressed: () async {
-                                if (montoSeleccionado != null && montoSeleccionado! > 0) {
-                                  Navigator.pop(sheetCtx);
-                                  await Future.delayed(const Duration(milliseconds: 250));
-                                  if (!mounted) return;
-                                  await _realizarRecargaBackend(
-                                    montoSeleccionado!,
-                                    tipoTransferencia,
-                                    metodoOtraBilletera,
-                                  );
-                                } else {
-                                  await _showPremiumModal(
-                                    title: 'Monto inválido',
-                                    message: 'Selecciona o ingresa un monto mayor a 0.',
-                                    icon: Icons.warning_amber_rounded,
-                                    accent: const Color(0xFFFFA726),
-                                  );
-                                }
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: accentBlue,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                elevation: 0,
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _SecondaryButton(
+                                  text: "Cancelar",
+                                  onTap: () => Navigator.pop(sheetCtx),
+                                ),
                               ),
-                              child: const Text(
-                                'Recargar',
-                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _GradientPrimaryButton(
+                                  text: "Recargar ahora",
+                                  icon: Icons.bolt_rounded,
+                                  onTap: () async {
+                                    if (montoSeleccionado != null && montoSeleccionado! > 0) {
+                                      Navigator.pop(sheetCtx);
+                                      await Future.delayed(const Duration(milliseconds: 250));
+                                      if (!mounted) return;
+                                      await _realizarRecargaBackend(
+                                        montoSeleccionado!,
+                                        tipoTransferencia,
+                                        metodoOtraBilletera,
+                                      );
+                                    } else {
+                                      await _showPremiumModal(
+                                        title: 'Monto inválido',
+                                        message: 'Selecciona o ingresa un monto mayor a 0.',
+                                        icon: Icons.warning_amber_rounded,
+                                        accent: const Color(0xFFFFA726),
+                                      );
+                                    }
+                                  },
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ],
                       ),
@@ -906,7 +1004,7 @@ class _PagosPageState extends State<PagosPage> {
   }
 
   // ===============================
-  // RECARGA BACKEND (misma lógica, UI premium)
+  // RECARGA BACKEND
   // ===============================
   Future<void> _realizarRecargaBackend(
     double montoSeleccionado,
@@ -998,8 +1096,11 @@ class _PagosPageState extends State<PagosPage> {
         String metodoPagoUi =
             (tipoTransferencia == 'Otra billetera') ? 'Otra billetera ($metodoOtraBilletera)' : tipoTransferencia;
 
-        String fecha = '';
-        String hora = '';
+
+        // Usar la fecha y hora actual del dispositivo para la boleta
+        final now = DateTime.now();
+        String fecha = '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
+        String hora = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
         String idTransaccion = '';
         double montoRecibido = montoSeleccionado;
 
@@ -1009,25 +1110,49 @@ class _PagosPageState extends State<PagosPage> {
 
           final String id = (movement['wmv_int_id'] ?? '').toString();
           idTransaccion = 'MOV$id';
+        }
 
-          final String fechaIso = (movement['timestamp_datecreate'] ?? '').toString();
-          if (fechaIso.isNotEmpty) {
-            try {
-              final dt = DateTime.parse(fechaIso);
-              fecha = '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-              hora = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-            } catch (_) {
-              fecha = fechaIso;
-              hora = '';
+        if (mounted) {
+          setState(() {
+            saldoActual = nuevoSaldo;
+            _movimientosPreviewFuture = _cargarMovimientosPreview();
+          });
+        }
+
+        if (mounted) {
+          // Sumar puntos por recarga
+          const int puntosGanadosRecarga = 5;
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            final prefs = await SharedPreferences.getInstance();
+            final String keyPuntos = 'puntos_${user.uid}';
+            final int puntosActuales = prefs.getInt(keyPuntos) ?? 0;
+            await prefs.setInt(keyPuntos, puntosActuales + puntosGanadosRecarga);
+
+            // Actualizar puntos en el backend
+            final rawToken = prefs.getString('access_token');
+            if (rawToken != null && rawToken.trim().isNotEmpty) {
+              final token = rawToken.trim();
+              final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/progreso/sumar/');
+              final body = jsonEncode({
+                'points': puntosGanadosRecarga,
+              });
+              try {
+                await http.post(
+                  uri,
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization': 'Bearer $token',
+                  },
+                  body: body,
+                );
+              } catch (e) {
+                debugPrint('Error al actualizar puntos en backend (recarga): $e');
+              }
             }
           }
-        }
 
-        if (mounted) {
-          setState(() => saldoActual = nuevoSaldo);
-        }
-
-        if (mounted) {
           await _mostrarPopupRecargaExitosa(
             context,
             montoRecibido,
@@ -1035,6 +1160,7 @@ class _PagosPageState extends State<PagosPage> {
             fecha,
             hora,
             idTransaccion.isEmpty ? 'REC${DateTime.now().millisecondsSinceEpoch}' : idTransaccion,
+            puntosGanadosRecarga,
           );
         }
       } else {
@@ -1056,7 +1182,7 @@ class _PagosPageState extends State<PagosPage> {
   }
 
   // ===============================
-  // POPUP RECARGA EXITOSA (tu UI, solo mejoré bordes/espacios)
+  // POPUP RECARGA EXITOSA
   // ===============================
   Future<void> _mostrarPopupRecargaExitosa(
     BuildContext context,
@@ -1065,17 +1191,8 @@ class _PagosPageState extends State<PagosPage> {
     String fecha,
     String hora,
     String idTransaccion,
+    int puntosGanados,
   ) async {
-    const int puntosGanados = 5;
-
-    final prefs = await SharedPreferences.getInstance();
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      final String keyPuntos = 'puntos_${user.uid}';
-      final int puntosActuales = prefs.getInt(keyPuntos) ?? 0;
-      await prefs.setInt(keyPuntos, puntosActuales + puntosGanados);
-    }
-
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1087,7 +1204,6 @@ class _PagosPageState extends State<PagosPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // BOLETA QUE SE CAPTURA COMO IMAGEN
                 RepaintBoundary(
                   key: _comprobanteKey,
                   child: Container(
@@ -1182,7 +1298,11 @@ class _PagosPageState extends State<PagosPage> {
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: Text(
                             "Tu recarga se ha procesado correctamente.",
-                            style: TextStyle(color: Colors.black.withOpacity(0.55), fontSize: 13, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              color: Colors.black.withOpacity(0.55),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                         ),
@@ -1202,7 +1322,8 @@ class _PagosPageState extends State<PagosPage> {
                         const SizedBox(height: 8),
                         const Divider(height: 1, color: Colors.black12),
                         const SizedBox(height: 10),
-                        const Text("Detalles del comprobante", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                        const Text("Detalles del comprobante",
+                            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
                         const SizedBox(height: 6),
                         _buildDetailRow(Icons.tag, "ID transacción", idTransaccion),
                         _buildDetailRow(Icons.credit_card, "Método de pago", tipoTransferencia),
@@ -1237,7 +1358,11 @@ class _PagosPageState extends State<PagosPage> {
                                 ),
                                 child: Text(
                                   "+ $puntosGanados",
-                                  style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
                                 ),
                               ),
                             ],
@@ -1249,7 +1374,6 @@ class _PagosPageState extends State<PagosPage> {
                   ),
                 ),
 
-                // BOTONES (NO ENTRAN EN LA CAPTURA)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
                   child: Row(
@@ -1281,7 +1405,10 @@ class _PagosPageState extends State<PagosPage> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: () => _mostrarPopupCompartir(context),
+                          // ✅ MODIFICACIÓN: compartir directo, sin popup
+                          onPressed: () async {
+                            await _capturarYCompartirComprobante();
+                          },
                           icon: const Icon(Icons.share, color: Colors.black),
                           label: const Text("Compartir", style: TextStyle(color: Colors.black)),
                           style: ElevatedButton.styleFrom(
@@ -1325,7 +1452,6 @@ class _PagosPageState extends State<PagosPage> {
     );
   }
 
-  // --- FUNCIÓN AUXILIAR PARA FILAS DE DETALLE ---
   Widget _buildDetailRow(IconData icon, String label, String value) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
@@ -1350,7 +1476,6 @@ class _PagosPageState extends State<PagosPage> {
     );
   }
 
-  // --- GENERAR PDF DE COMPROBANTE ---
   Future<void> _generarPDFComprobante(
     BuildContext context,
     double monto,
@@ -1434,8 +1559,7 @@ class _PagosPageState extends State<PagosPage> {
         if (result.type != ResultType.done) {
           await _showPremiumModal(
             title: 'No se pudo abrir',
-            message:
-                'Se guardó correctamente, pero no se pudo abrir automáticamente.\n\nBusca: comprobante_recarga.pdf',
+            message: 'Se guardó correctamente, pero no se pudo abrir automáticamente.\n\nBusca: comprobante_recarga.pdf',
             icon: Icons.info_rounded,
             accent: const Color(0xFFFFA726),
           );
@@ -1443,8 +1567,7 @@ class _PagosPageState extends State<PagosPage> {
       } catch (e) {
         await _showPremiumModal(
           title: 'No se pudo abrir',
-          message:
-              'Se guardó correctamente, pero falló al abrir.\n\nBusca: comprobante_recarga.pdf\n\nError: $e',
+          message: 'Se guardó correctamente, pero falló al abrir.\n\nBusca: comprobante_recarga.pdf\n\nError: $e',
           icon: Icons.error_rounded,
           accent: const Color(0xFFE53935),
         );
@@ -1459,56 +1582,24 @@ class _PagosPageState extends State<PagosPage> {
     }
   }
 
-  // --- POPUP DE COMPARTIR COMPROBANTE ---
-  void _mostrarPopupCompartir(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                "Compartir comprobante de pago",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.share, color: Colors.white),
-                label: const Text(
-                  "Compartir",
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: accentBlue,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 14),
-                ),
-                onPressed: () async {
-                  await _capturarYCompartirComprobante();
-                  if (mounted) Navigator.pop(context);
-                },
-              ),
-              const SizedBox(height: 20),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text(
-                  "Cancelar",
-                  style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  // ✅ Ya no hay popup intermedio para compartir.
+  // (Se eliminó _mostrarPopupCompartir)
 
   Future<void> _capturarYCompartirComprobante() async {
     try {
+      // Actualizar la fecha y hora en el widget antes de capturar
+      final now = DateTime.now();
+      final String fechaActual = '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
+      final String horaActual = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+
+      // Forzar reconstrucción del widget para que muestre la fecha/hora actual
+      setState(() {
+        // Si tienes variables de estado para la fecha/hora del comprobante, actualízalas aquí
+        // Si no, asegúrate que el widget lea la fecha/hora actual directamente
+      });
+
+      await Future.delayed(const Duration(milliseconds: 100)); // Espera breve para asegurar el render
+
       final boundary = _comprobanteKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
       if (boundary == null) {
         await _showPremiumModal(
@@ -1529,7 +1620,7 @@ class _PagosPageState extends State<PagosPage> {
       final file = File('${dir.path}/comprobante_recarga_${DateTime.now().millisecondsSinceEpoch}.png');
       await file.writeAsBytes(pngBytes);
 
-      await Share.shareXFiles([XFile(file.path)], text: 'Comprobante de recarga');
+      await Share.shareXFiles([XFile(file.path)], text: 'Comprobante de recarga\nFecha: $fechaActual\nHora: $horaActual');
     } catch (e) {
       await _showPremiumModal(
         title: 'Error al compartir',
@@ -1578,20 +1669,73 @@ class MovimientoItemPremium extends StatelessWidget {
             tipo: tipo,
             fecha: fecha,
           );
-          Navigator.of(context).push(
-            PageRouteBuilder(
-              opaque: false,
-              pageBuilder: (context, animation, secondaryAnimation) => FadeTransition(
-                opacity: animation,
-                child: DetalleMovimientoPage(
-                  movimiento: movimiento,
-                  datosAdicionales: movimientoRaw,
+          // Mostrar opciones: ver detalle o descargar comprobante
+          showModalBottomSheet(
+            context: context,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            builder: (ctx) {
+              return SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.receipt_long_rounded),
+                        title: const Text('Ver detalle'),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          Navigator.of(context).push(
+                            PageRouteBuilder(
+                              opaque: false,
+                              pageBuilder: (context, animation, secondaryAnimation) => FadeTransition(
+                                opacity: animation,
+                                child: DetalleMovimientoPage(
+                                  movimiento: movimiento,
+                                  datosAdicionales: movimientoRaw,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.download_rounded),
+                        title: const Text('Descargar comprobante'),
+                        onTap: () async {
+                          Navigator.pop(ctx);
+                          // Buscar el comprobante PDF por ID
+                          try {
+                            final dir = await getApplicationDocumentsDirectory();
+                            final id = (movimientoRaw['referencia'] ?? '').toString();
+                            final file = File("${dir.path}/comprobante_recarga_$id.pdf");
+                            if (await file.exists()) {
+                              await OpenFile.open(file.path);
+                            } else {
+                              // Si no existe, intentar con el nombre genérico
+                              final generic = File("${dir.path}/comprobante_recarga.pdf");
+                              if (await generic.exists()) {
+                                await OpenFile.open(generic.path);
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('No se encontró el comprobante PDF.')),
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Error al abrir comprobante: $e')),
+                            );
+                          }
+                        },
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           );
         } else {
-          // Mantengo tu boleta de compra simple (si quieres la hacemos igual de pro + PDF/Share)
           showDialog(
             context: context,
             barrierDismissible: false,
@@ -1599,7 +1743,6 @@ class MovimientoItemPremium extends StatelessWidget {
               final String metodo = (movimientoRaw['metodo'] ?? 'Compra').toString();
               final String id = (movimientoRaw['codigo'] ?? '').toString();
               final String cliente = (movimientoRaw['cliente'] ?? 'Cliente').toString();
-
               return Dialog(
                 insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
@@ -1632,11 +1775,15 @@ class MovimientoItemPremium extends StatelessWidget {
                           ),
                           child: Column(
                             children: [
-                              Text('S/ ${monto.toStringAsFixed(2)}',
-                                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+                              Text(
+                                'S/ ${monto.toStringAsFixed(2)}',
+                                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+                              ),
                               const SizedBox(height: 6),
-                              Text(isRecarga ? 'Recarga' : 'Compra',
-                                  style: TextStyle(color: Colors.black.withOpacity(0.55), fontWeight: FontWeight.w700)),
+                              Text(
+                                isRecarga ? 'Recarga' : 'Compra',
+                                style: TextStyle(color: Colors.black.withOpacity(0.55), fontWeight: FontWeight.w700),
+                              ),
                             ],
                           ),
                         ),
@@ -1657,8 +1804,10 @@ class MovimientoItemPremium extends StatelessWidget {
                               side: BorderSide(color: Colors.black.withOpacity(0.08)),
                             ),
                             onPressed: () => Navigator.pop(context),
-                            child: const Text('Regresar',
-                                style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900)),
+                            child: const Text(
+                              'Regresar',
+                              style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900),
+                            ),
                           ),
                         )
                       ],
@@ -1884,88 +2033,6 @@ class _PillButton extends StatelessWidget {
   }
 }
 
-class _InfoBox extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String message;
-  final Color accent;
-
-  const _InfoBox({
-    required this.icon,
-    required this.title,
-    required this.message,
-    required this.accent,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: accent.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: accent.withOpacity(0.25)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: accent),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
-                const SizedBox(height: 4),
-                Text(
-                  message,
-                  style: TextStyle(color: Colors.black.withOpacity(0.65), fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SegmentedChips extends StatelessWidget {
-  final String value;
-  final List<String> options;
-  final ValueChanged<String> onChanged;
-
-  const _SegmentedChips({
-    required this.value,
-    required this.options,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: options.map((opt) {
-        final selected = value == opt;
-        return ChoiceChip(
-          label: Text(opt),
-          selected: selected,
-          selectedColor: _PagosPageState.accentBlue,
-          backgroundColor: Colors.black.withOpacity(0.06),
-          labelStyle: TextStyle(
-            color: selected ? Colors.white : Colors.black87,
-            fontWeight: FontWeight.w900,
-            fontSize: 12,
-          ),
-          onSelected: (_) => onChanged(opt),
-        );
-      }).toList(),
-    );
-  }
-}
-
 class _ShimmerLine extends StatelessWidget {
   const _ShimmerLine({super.key});
 
@@ -2003,10 +2070,23 @@ class _SkeletonMovimiento extends StatelessWidget {
           Expanded(
             child: Column(
               children: [
-                Container(height: 12, decoration: BoxDecoration(color: Colors.black.withOpacity(0.06), borderRadius: BorderRadius.circular(8))),
+                Container(
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
                 const SizedBox(height: 8),
-                Container(height: 10, width: 140, alignment: Alignment.centerLeft,
-                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.05), borderRadius: BorderRadius.circular(8))),
+                Container(
+                  height: 10,
+                  width: 140,
+                  alignment: Alignment.centerLeft,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
               ],
             ),
           ),
@@ -2020,6 +2100,392 @@ class _SkeletonMovimiento extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// =====================================================
+// ✅ Helpers Premium del BottomSheet de Recarga
+// =====================================================
+class _AmountChip extends StatelessWidget {
+  final int amount;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _AmountChip({
+    required this.amount,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected ? _PagosPageState.accentBlue : Colors.black.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? _PagosPageState.accentBlue.withOpacity(0.35) : Colors.black.withOpacity(0.06),
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: _PagosPageState.accentBlue.withOpacity(0.25),
+                    blurRadius: 14,
+                    offset: const Offset(0, 10),
+                  ),
+                ]
+              : [],
+        ),
+        child: Text(
+          "S/ $amount",
+          style: TextStyle(
+            color: selected ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BigChoiceChip extends StatelessWidget {
+  final String text;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _BigChoiceChip({
+    required this.text,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: selected ? _PagosPageState.accentBlue : Colors.black.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? _PagosPageState.accentBlue.withOpacity(0.35) : Colors.black.withOpacity(0.06),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              text == "Yape" ? Icons.qr_code_rounded : Icons.qr_code_2_rounded,
+              color: selected ? Colors.white : Colors.black87,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              text,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PremiumTabs extends StatelessWidget {
+  final String value;
+  final List<String> options;
+  final ValueChanged<String> onChanged;
+
+  const _PremiumTabs({
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.black.withOpacity(0.06)),
+      ),
+      child: Row(
+        children: options.map((opt) {
+          final selected = opt == value;
+          return Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => onChanged(opt),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: selected ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: selected
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.08),
+                            blurRadius: 14,
+                            offset: const Offset(0, 8),
+                          )
+                        ]
+                      : [],
+                ),
+                child: Center(
+                  child: Text(
+                    opt,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                      color: selected ? _PagosPageState.mainColor : Colors.black54,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class _PremiumInfoCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final Widget child;
+
+  const _PremiumInfoCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: accent.withOpacity(0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.85),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: accent.withOpacity(0.20)),
+                ),
+                child: Icon(icon, color: accent),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: Colors.black.withOpacity(0.55),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            ],
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniStatPill extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color accent;
+
+  const _MiniStatPill({
+    required this.label,
+    required this.value,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withOpacity(0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.black.withOpacity(0.55),
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(value, style: TextStyle(color: accent, fontWeight: FontWeight.w900)),
+        ],
+      ),
+    );
+  }
+}
+
+class _KeyValueLine extends StatelessWidget {
+  final String k;
+  final String v;
+  const _KeyValueLine({required this.k, required this.v});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
+              k,
+              style: TextStyle(
+                color: Colors.black.withOpacity(0.55),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              v,
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GradientPrimaryButton extends StatelessWidget {
+  final String text;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _GradientPrimaryButton({
+    required this.text,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        height: 52,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF0D6EFD), Color(0xFF00B4D8)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF0D6EFD).withOpacity(0.30),
+              blurRadius: 18,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: Colors.white),
+              const SizedBox(width: 8),
+              Text(
+                text,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SecondaryButton extends StatelessWidget {
+  final String text;
+  final VoidCallback onTap;
+  const _SecondaryButton({required this.text, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        height: 52,
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.black.withOpacity(0.06)),
+        ),
+        child: Center(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+              color: Colors.black87,
+            ),
+          ),
+        ),
       ),
     );
   }
