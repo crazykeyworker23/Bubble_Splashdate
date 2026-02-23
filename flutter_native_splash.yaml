@@ -4,8 +4,8 @@
 flutter_native_splash:
   # Splash simple: fondo sólido + logo centrado
   fullscreen: true
-  android: true
-  ios: true
+  android: false
+  ios: false
   web: false
 
   color: "#3CB4B4"

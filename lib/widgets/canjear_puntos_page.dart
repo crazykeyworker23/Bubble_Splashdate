@@ -1,4 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:bubblesplash/constants/api_constants.dart';
+import 'package:bubblesplash/services/auth_service.dart';
 
 class CanjearPuntosPage extends StatelessWidget {
   const CanjearPuntosPage({super.key});
@@ -130,7 +137,7 @@ class CanjearPuntosPage extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              onPressed: () {
+              onPressed: () async {
                 FocusScope.of(context).unfocus();
                 final code = controller.text.trim();
 
@@ -140,11 +147,7 @@ class CanjearPuntosPage extends StatelessWidget {
                   );
                   return;
                 }
-
-                // Aquí podrías llamar a tu API de canje de puntos.
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Intentando canjear el código: $code')),
-                );
+                await _redeemPromoCode(context, code);
               },
               child: const Text(
                 'Canjear',
@@ -159,5 +162,109 @@ class CanjearPuntosPage extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _redeemPromoCode(BuildContext context, String code) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      String? rawToken = prefs.getString('access_token');
+
+      if (rawToken == null || rawToken.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No hay sesión activa para canjear el código.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      rawToken = rawToken.trim();
+
+      Future<http.Response> _postWithToken(String token) {
+        final uri = Uri.parse(
+          ApiConstants.baseUrl + '/bubblesplash/promo-codes/redeem/',
+        );
+
+        return http.post(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({'code': code}),
+        );
+      }
+
+      http.Response response = await _postWithToken(rawToken);
+
+      // Si el token expiró, intentamos refrescarlo una vez.
+      if (response.statusCode == 401) {
+        final refreshed = await AuthService.refreshToken();
+        if (refreshed) {
+          final newToken = (prefs.getString('access_token') ?? '').trim();
+          if (newToken.isNotEmpty) {
+            response = await _postWithToken(newToken);
+          }
+        }
+      }
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        String message = 'Código canjeado correctamente.';
+        try {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map<String, dynamic>) {
+            final dynamic m = decoded['message'] ?? decoded['detail'] ?? decoded['msg'];
+            if (m is String && m.trim().isNotEmpty) {
+              message = m.trim();
+            }
+          }
+        } catch (_) {}
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        String errorMessage = 'No se pudo canjear el código.';
+        try {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map<String, dynamic>) {
+            final dynamic m = decoded['error'] ?? decoded['detail'] ?? decoded['message'];
+            if (m is String && m.trim().isNotEmpty) {
+              errorMessage = m.trim();
+            }
+          } else if (decoded is List && decoded.isNotEmpty) {
+            final dynamic first = decoded.first;
+            if (first is String && first.trim().isNotEmpty) {
+              errorMessage = first.trim();
+            }
+          }
+        } catch (_) {
+          if (response.body.isNotEmpty) {
+            errorMessage = 'Error ${response.statusCode}: ${response.body}';
+          } else {
+            errorMessage = 'Error ${response.statusCode} al canjear el código.';
+          }
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al canjear el código: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 }

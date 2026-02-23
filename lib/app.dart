@@ -76,31 +76,6 @@ class _SessionGateState extends State<SessionGate> {
   }
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => CartController(),
-      child: MaterialApp(
-        title: 'Splash Bubble',
-        theme: ThemeData(
-          primaryColor: const Color.fromARGB(255, 255, 255, 255),
-          colorScheme: ColorScheme.fromSwatch().copyWith(
-            primary: const Color.fromARGB(255, 255, 255, 255),
-          ),
-          scaffoldBackgroundColor: Colors.white,
-        ),
-        debugShowCheckedModeBanner: false,
-        navigatorObservers: [routeObserver],
-        home: const SessionGate(),
-        routes: {...AppRoutes.routes},
-      ),
-    );
-  }
-}
-
 /// Splash corto que se muestra mientras se lee el estado de sesión
 /// al iniciar la app. Incluye el logo y puntos de carga animados.
 class _SessionSplashLoading extends StatefulWidget {
@@ -186,3 +161,29 @@ class _SessionSplashLoadingState extends State<_SessionSplashLoading>
     );
   }
 }
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      create: (_) => CartController(),
+      child: MaterialApp(
+        title: 'Splash Bubble',
+        theme: ThemeData(
+          primaryColor: const Color.fromARGB(255, 255, 255, 255),
+          colorScheme: ColorScheme.fromSwatch().copyWith(
+            primary: const Color.fromARGB(255, 255, 255, 255),
+          ),
+          scaffoldBackgroundColor: Colors.white,
+        ),
+        debugShowCheckedModeBanner: false,
+        navigatorObservers: [routeObserver],
+        home: const SessionGate(),
+        routes: {...AppRoutes.routes},
+      ),
+    );
+  }
+}
+

@@ -14,6 +14,7 @@ import 'package:bubblesplash/widgets/custom_appbar.dart';
 import 'package:bubblesplash/services/session_manager.dart';
 import 'package:bubblesplash/services/auth_service.dart';
 import 'package:bubblesplash/constants/backend_config.dart';
+import 'package:bubblesplash/routes/app_routes.dart';
 
 import 'CartPage.dart';
 
@@ -267,10 +268,18 @@ class _InicioPageState extends State<InicioPage> {
       final rawToken = prefs.getString('access_token');
 
       if (rawToken == null || rawToken.trim().isEmpty) {
+        // Si por algún motivo llegamos aquí sin token, aseguramos
+        // marcar la sesión como cerrada y redirigir al login.
+        await prefs.setBool('isLoggedIn', false);
+
         if (!mounted) return;
         setState(() {
           _homeError = 'No hay access token. Inicia sesión nuevamente.';
         });
+
+        // Navegamos al login limpiando la ruta actual, para evitar
+        // que el usuario se quede en un estado inconsistente.
+        Navigator.pushReplacementNamed(context, AppRoutes.login);
         return;
       }
 
