@@ -22,12 +22,9 @@ allprojects {
         google()
         mavenCentral()
     }
-    // Forzar Java 11 en todos los subproyectos
-    tasks.withType<JavaCompile> {
-        sourceCompatibility = "11"
-        targetCompatibility = "11"
-        options.compilerArgs.add("-Xlint:deprecation")
-        options.compilerArgs.add("-Xlint:unchecked")
+    // Opcional: silenciar advertencias sobre opciones obsoletas de javac
+    tasks.withType<JavaCompile>().configureEach {
+        options.compilerArgs.add("-Xlint:-options")
     }
 }
 

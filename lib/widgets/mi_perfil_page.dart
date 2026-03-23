@@ -25,11 +25,6 @@ class MiPerfilPage extends StatefulWidget {
 }
 
 class _MiPerfilPageState extends State<MiPerfilPage> {
-  // --- Puntos por completar perfil ---
-  static const int puntosPerfilCompleto = 60;
-  bool _perfilCompleto = false;
-  bool _puntosOtorgados = false;
-
   static const Color _brandDark = Color(0xFF0F3D4A);
   static const Color _brandTeal = Color(0xFF128FA0);
   static const Color _bg = Color(0xFFF4FAFF);
@@ -52,10 +47,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
   final TextEditingController _occupationController = TextEditingController();
   final TextEditingController _educationLevelController = TextEditingController();
   final TextEditingController _avatarUrlController = TextEditingController();
-  final TextEditingController _birthdayController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-
-  DateTime? _birthday;
 
   final List<String> _genderOptions = const [
     'Sin especificar',
@@ -75,7 +67,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
 
   final List<String> _educationOptions = const [
     'Sin especificar',
-    'Primaria',
     'Secundaria',
     'Técnico',
     'Universitario',
@@ -104,30 +95,8 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
     _occupationController.dispose();
     _educationLevelController.dispose();
     _avatarUrlController.dispose();
-    _birthdayController.dispose();
     _phoneController.dispose();
     super.dispose();
-  }
-
-  // =========================
-  // ✅ PERFIL COMPLETO
-  // =========================
-  bool _verificarPerfilCompleto() {
-    final full = _fullNameController.text.trim();
-    final age = _ageController.text.trim();
-    final gen = _genderController.text.trim();
-    final addr = _addressController.text.trim();
-    final occ = _occupationController.text.trim();
-    final edu = _educationLevelController.text.trim();
-
-    bool validSelect(String v) => v.isNotEmpty && v != 'Sin especificar';
-
-    return full.isNotEmpty &&
-        age.isNotEmpty &&
-        validSelect(gen) &&
-        addr.isNotEmpty &&
-        validSelect(occ) &&
-        validSelect(edu);
   }
 
   Future<String?> _getAccessToken() async {
@@ -195,10 +164,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
 
         final profile = UserProfile.fromJson(data, fcmToken: fcm);
 
-        // Para flag por usuario (evitar que quede global)
-        final userId = await UserInfoService.fetchUserId();
-        final flagKey = userId == null ? 'puntos_perfil_completo' : 'puntos_perfil_completo_$userId';
-
         if (!mounted) return;
         setState(() {
           _profile = profile;
@@ -214,9 +179,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
           _educationLevelController.text = profile.educationLevel ?? '';
           _avatarUrlController.text = profile.avatarUrl ?? '';
           _phoneController.text = profile.celular ?? '';
-
-          _perfilCompleto = _verificarPerfilCompleto();
-          _puntosOtorgados = prefs.getBool(flagKey) ?? false;
         });
       } else {
         if (mounted) {
@@ -237,19 +199,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
   }
 
   Future<void> _loadLocalBirthday() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? birthdayStr = prefs.getString('birthday');
-    if (birthdayStr == null || birthdayStr.trim().isEmpty) return;
-
-    try {
-      final DateTime parsed = DateTime.parse(birthdayStr);
-      if (!mounted) return;
-      setState(() {
-        _birthday = parsed;
-        _birthdayController.text =
-            '${parsed.day.toString().padLeft(2, '0')}/${parsed.month.toString().padLeft(2, '0')}/${parsed.year.toString().padLeft(4, '0')}';
-      });
-    } catch (_) {}
+    // Campo cumpleaños deshabilitado, no se carga nada
   }
 
   Future<void> _saveProfile() async {
@@ -270,11 +220,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('fcm_token', fcmValue);
 
-      if (_birthday != null) {
-        final String bStr =
-            '${_birthday!.year.toString().padLeft(4, '0')}-${_birthday!.month.toString().padLeft(2, '0')}-${_birthday!.day.toString().padLeft(2, '0')}';
-        await prefs.setString('birthday', bStr);
-      }
+      // Campo cumpleaños deshabilitado, ya no se persiste en preferencias
 
       final userId = await UserInfoService.fetchUserId();
       if (userId == null) {
@@ -285,10 +231,6 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         }
         return;
       }
-
-      // ✅ flag por usuario
-      final flagKey = 'puntos_perfil_completo_$userId';
-      final String keyPuntos = 'puntos_$userId';
 
       if (_localAvatarFile != null) {
         try {
@@ -322,32 +264,14 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         userId: userId,
       );
 
-      final perfilCompletoAhora = _verificarPerfilCompleto();
-      final puntosOtorgados = prefs.getBool(flagKey) ?? false;
-
       if (!mounted) return;
       setState(() {
         _editMode = false;
-        _perfilCompleto = perfilCompletoAhora;
-        _puntosOtorgados = puntosOtorgados;
       });
 
-      if (perfilCompletoAhora && !puntosOtorgados) {
-        final int puntosActuales = prefs.getInt(keyPuntos) ?? 0;
-        await prefs.setInt(keyPuntos, puntosActuales + puntosPerfilCompleto);
-        await prefs.setBool(flagKey, true);
-
-        if (!mounted) return;
-        setState(() => _puntosOtorgados = true);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("¡Felicidades! Has completado tu perfil y ganaste 60 puntos extra.")),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Perfil actualizado correctamente")),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Perfil actualizado correctamente")),
+      );
 
       await _loadProfile();
     } catch (e) {
@@ -374,7 +298,7 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
       hintText: hint,
       prefixIcon: icon == null ? null : Icon(icon, color: _brandTeal),
       filled: true,
-      fillColor: Colors.white,
+      fillColor: _editMode ? const Color(0xFFFFFBF0) : Colors.white,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -457,10 +381,13 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
         elevation: 0,
         backgroundColor: _brandDark,
         foregroundColor: Colors.white,
-        title: const Text("Mi Perfil", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(
+          _editMode ? "Edita tu perfil" : "Mi perfil",
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
         actions: [
           IconButton(
-            tooltip: _editMode ? "Cancelar" : "Editar",
+            tooltip: _editMode ? "Salir sin guardar" : "Editar perfil",
             icon: Icon(_editMode ? Icons.close : Icons.edit),
             onPressed: _loading ? null : () => setState(() => _editMode = !_editMode),
           ),
@@ -472,192 +399,179 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
               ? const Center(child: Text("No se pudo cargar el perfil"))
               : Column(
                   children: [
-                    if (!_perfilCompleto)
+                    _premiumHeader(),
+                    if (_editMode)
                       Container(
                         width: double.infinity,
-                        color: Colors.amber.shade100,
-                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 18),
-                        child: Row(
-                          children: const [
-                            Icon(Icons.info_outline, color: Colors.amber, size: 22),
-                            SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                "Completa todos tus datos para ganar 60 puntos extra y acceder a todos los beneficios.",
-                                style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    _premiumHeader(),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-                          child: Form(
-                            key: _formKey,
-                            child: Column(
-                              children: [
-                                _sectionCard(
-                                  title: "Identidad",
-                                  icon: Icons.badge_outlined,
-                                  children: [
-                                    TextFormField(
-                                      controller: _usernameController,
-                                      readOnly: !_editMode,
-                                      decoration: _premiumInputDecoration(
-                                        label: "Usuario",
-                                        icon: Icons.alternate_email,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    TextFormField(
-                                      controller: _fullNameController,
-                                      readOnly: !_editMode,
-                                      decoration: _premiumInputDecoration(
-                                        label: "Nombre completo",
-                                        icon: Icons.person_outline,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    TextFormField(
-                                      controller: _ageController,
-                                      readOnly: !_editMode,
-                                      keyboardType: TextInputType.number,
-                                      decoration: _premiumInputDecoration(
-                                        label: "Edad",
-                                        icon: Icons.cake_outlined,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    TextFormField(
-                                      controller: _birthdayController,
-                                      readOnly: true,
-                                      decoration: _premiumInputDecoration(
-                                        label: "Cumpleaños (para beneficios)",
-                                        icon: Icons.event_outlined,
-                                      ),
-                                      onTap: !_editMode
-                                          ? null
-                                          : () async {
-                                              final now = DateTime.now();
-                                              final initialDate =
-                                                  _birthday ?? DateTime(now.year - 18, now.month, now.day);
-
-                                              final picked = await showDatePicker(
-                                                context: context,
-                                                initialDate: initialDate,
-                                                firstDate: DateTime(1900),
-                                                lastDate: now,
-                                              );
-
-                                              if (picked != null && mounted) {
-                                                setState(() {
-                                                  _birthday = picked;
-                                                  _birthdayController.text =
-                                                      '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year.toString().padLeft(4, '0')}';
-                                                });
-                                              }
-                                            },
-                                    ),
-                                    const SizedBox(height: 10),
-                                    DropdownButtonFormField<String>(
-                                      value: _genderOptions.contains(_genderController.text)
-                                          ? _genderController.text
-                                          : _genderOptions.first,
-                                      decoration: _premiumInputDecoration(
-                                        label: "Género",
-                                        icon: Icons.wc_outlined,
-                                      ),
-                                      items: _genderOptions
-                                          .map((g) => DropdownMenuItem<String>(value: g, child: Text(g)))
-                                          .toList(),
-                                      onChanged: !_editMode
-                                          ? null
-                                          : (v) => setState(() => _genderController.text = (v ?? _genderOptions.first)),
-                                    ),
-                                  ],
-                                ),
-                                _sectionCard(
-                                  title: "Sobre ti",
-                                  icon: Icons.notes_outlined,
-                                  children: [
-                                    TextFormField(
-                                      controller: _descriptionController,
-                                      readOnly: !_editMode,
-                                      maxLines: 3,
-                                      decoration: _premiumInputDecoration(
-                                        label: "Descripción",
-                                        icon: Icons.short_text,
-                                        hint: "Cuéntanos un poco sobre ti",
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    TextFormField(
-                                      controller: _addressController,
-                                      readOnly: !_editMode,
-                                      decoration: _premiumInputDecoration(
-                                        label: "Dirección",
-                                        icon: Icons.location_on_outlined,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    TextFormField(
-                                      controller: _phoneController,
-                                      readOnly: !_editMode,
-                                      keyboardType: TextInputType.phone,
-                                      decoration: _premiumInputDecoration(
-                                        label: "Celular",
-                                        icon: Icons.phone_outlined,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                _sectionCard(
-                                  title: "Ocupación y estudios",
-                                  icon: Icons.school_outlined,
-                                  children: [
-                                    DropdownButtonFormField<String>(
-                                      value: _occupationOptions.contains(_occupationController.text)
-                                          ? _occupationController.text
-                                          : _occupationOptions.first,
-                                      decoration: _premiumInputDecoration(
-                                        label: "Ocupación",
-                                        icon: Icons.work_outline,
-                                      ),
-                                      items: _occupationOptions
-                                          .map((o) => DropdownMenuItem<String>(value: o, child: Text(o)))
-                                          .toList(),
-                                      onChanged: !_editMode
-                                          ? null
-                                          : (v) => setState(
-                                              () => _occupationController.text = (v ?? _occupationOptions.first)),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    DropdownButtonFormField<String>(
-                                      value: _educationOptions.contains(_educationLevelController.text)
-                                          ? _educationLevelController.text
-                                          : _educationOptions.first,
-                                      decoration: _premiumInputDecoration(
-                                        label: "Nivel de educación",
-                                        icon: Icons.menu_book_outlined,
-                                      ),
-                                      items: _educationOptions
-                                          .map((e) => DropdownMenuItem<String>(value: e, child: Text(e)))
-                                          .toList(),
-                                      onChanged: !_editMode
-                                          ? null
-                                          : (v) => setState(
-                                              () => _educationLevelController.text = (v ?? _educationOptions.first)),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 90),
-                              ],
-                            ),
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                        color: const Color(0xFFFFF4D0),
+                        child: const Text(
+                          "Estás editando tu perfil. Toca Guardar para aplicar los cambios o Cancelar para descartarlos.",
+                          style: TextStyle(
+                            color: Color(0xFF6C4A00),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
+                      ),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final bool isWide = constraints.maxWidth > 700;
+                          final double horizontalPadding =
+                              isWide ? (constraints.maxWidth - 600) / 2 : 18.0;
+
+                          return SingleChildScrollView(
+                            physics: const BouncingScrollPhysics(),
+                            child: Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                horizontalPadding,
+                                16,
+                                horizontalPadding,
+                                18,
+                              ),
+                              child: Form(
+                                key: _formKey,
+                                child: Column(
+                                  children: [
+                                    _sectionCard(
+                                      title: "Identidad",
+                                      icon: Icons.badge_outlined,
+                                      children: [
+                                        TextFormField(
+                                          controller: _usernameController,
+                                          readOnly: true,
+                                          decoration: _premiumInputDecoration(
+                                            label: "Usuario (no editable)",
+                                            icon: Icons.alternate_email,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        TextFormField(
+                                          controller: _fullNameController,
+                                          readOnly: true,
+                                          decoration: _premiumInputDecoration(
+                                            label: "Nombre completo (no editable)",
+                                            icon: Icons.person_outline,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        TextFormField(
+                                          controller: _ageController,
+                                          readOnly: !_editMode,
+                                          keyboardType: TextInputType.number,
+                                          decoration: _premiumInputDecoration(
+                                            label: "Edad",
+                                            icon: Icons.cake_outlined,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        // Campo cumpleaños eliminado
+                                        DropdownButtonFormField<String>(
+                                          value: _genderOptions.contains(_genderController.text)
+                                              ? _genderController.text
+                                              : _genderOptions.first,
+                                          decoration: _premiumInputDecoration(
+                                            label: "Género",
+                                            icon: Icons.wc_outlined,
+                                          ),
+                                          items: _genderOptions
+                                              .map((g) => DropdownMenuItem<String>(value: g, child: Text(g)))
+                                              .toList(),
+                                          onChanged: !_editMode
+                                              ? null
+                                              : (v) => setState(
+                                                    () => _genderController.text =
+                                                        (v ?? _genderOptions.first),
+                                                  ),
+                                        ),
+                                      ],
+                                    ),
+                                    _sectionCard(
+                                      title: "Sobre ti",
+                                      icon: Icons.notes_outlined,
+                                      children: [
+                                        TextFormField(
+                                          controller: _descriptionController,
+                                          readOnly: !_editMode,
+                                          maxLines: 3,
+                                          decoration: _premiumInputDecoration(
+                                            label: "Descripción",
+                                            icon: Icons.short_text,
+                                            hint: "Cuéntanos un poco sobre ti",
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        TextFormField(
+                                          controller: _addressController,
+                                          readOnly: !_editMode,
+                                          decoration: _premiumInputDecoration(
+                                            label: "Dirección",
+                                            icon: Icons.location_on_outlined,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        TextFormField(
+                                          controller: _phoneController,
+                                          readOnly: !_editMode,
+                                          keyboardType: TextInputType.phone,
+                                          decoration: _premiumInputDecoration(
+                                            label: "Celular",
+                                            icon: Icons.phone_outlined,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    _sectionCard(
+                                      title: "Ocupación y estudios",
+                                      icon: Icons.school_outlined,
+                                      children: [
+                                        DropdownButtonFormField<String>(
+                                          value: _occupationOptions.contains(_occupationController.text)
+                                              ? _occupationController.text
+                                              : _occupationOptions.first,
+                                          decoration: _premiumInputDecoration(
+                                            label: "Ocupación",
+                                            icon: Icons.work_outline,
+                                          ),
+                                          items: _occupationOptions
+                                              .map((o) => DropdownMenuItem<String>(value: o, child: Text(o)))
+                                              .toList(),
+                                          onChanged: !_editMode
+                                              ? null
+                                              : (v) => setState(
+                                                    () => _occupationController.text =
+                                                        (v ?? _occupationOptions.first),
+                                                  ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        DropdownButtonFormField<String>(
+                                          value: _educationOptions.contains(_educationLevelController.text)
+                                              ? _educationLevelController.text
+                                              : _educationOptions.first,
+                                          decoration: _premiumInputDecoration(
+                                            label: "Nivel de educación",
+                                            icon: Icons.menu_book_outlined,
+                                          ),
+                                          items: _educationOptions
+                                              .map((e) => DropdownMenuItem<String>(value: e, child: Text(e)))
+                                              .toList(),
+                                          onChanged: !_editMode
+                                              ? null
+                                              : (v) => setState(
+                                                    () => _educationLevelController.text =
+                                                        (v ?? _educationOptions.first),
+                                                  ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 90),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                     if (_editMode) _bottomSaveBar(),
@@ -668,6 +582,9 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
 
   Widget _premiumHeader() {
     final avatar = _avatarProvider();
+    final age = _ageController.text.trim();
+    final gender = _genderController.text.trim();
+    final occupation = _occupationController.text.trim();
 
     return Container(
       width: double.infinity,
@@ -754,20 +671,55 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
                   style: const TextStyle(color: Colors.white70, fontSize: 13),
                 ),
                 const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.18),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: Colors.white.withOpacity(0.25)),
-                  ),
-                  child: Text(
-                    _editMode ? "Modo edición" : "Vista segura",
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-                  ),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white.withOpacity(0.25)),
+                      ),
+                      child: Text(
+                        _editMode ? "Estás editando tus datos" : "Vista solo lectura",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (age.isNotEmpty) _headerInfoChip(Icons.cake_outlined, "$age años"),
+                    if (gender.isNotEmpty) _headerInfoChip(Icons.wc_outlined, gender),
+                    if (occupation.isNotEmpty)
+                      _headerInfoChip(Icons.work_outline, occupation),
+                  ],
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerInfoChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.16),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: Colors.white),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontSize: 11),
           ),
         ],
       ),

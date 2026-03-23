@@ -36,11 +36,16 @@ class ReceiptPage extends StatefulWidget {
   late final String orderId = (Random().nextInt(900000) + 100000)
       .toString(); // 6 dígitos aleatorios
 
-  // Fecha y hora actual
-  final String date =
-      "${DateTime.now().day.toString().padLeft(2, '0')}/${DateTime.now().month.toString().padLeft(2, '0')}/${DateTime.now().year}";
-  final String time =
-      "${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}";
+  // Fecha y hora actual (hora local, formateada HH:mm)
+  final String date = (() {
+    final now = DateTime.now().toLocal();
+    return "${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}";
+  })();
+
+  final String time = (() {
+    final now = DateTime.now().toLocal();
+    return "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+  })();
 
   ReceiptPage({
     super.key,
@@ -70,9 +75,9 @@ class _ReceiptPageState extends State<ReceiptPage> {
   bool _walletApplied = false;
 
   // Datos de la empresa
-  final String _razonSocial = 'BUBBLE TEA BUBBLESPLASH';
-  final String _direccionEmpresa = 'Calle. Sargento Lores, Iquitos, Loreto';
-  final String _telefonoContacto = '+51 999 999 999';
+  final String _razonSocial = 'SPLASH BUBBLE';
+  final String _direccionEmpresa = 'Calle. Sargento Lores #762, Iquitos, Loreto';
+  final String _telefonoContacto = '+51 910 958 665';
 
   int _asInt(dynamic value) {
     if (value is int) return value;
@@ -367,8 +372,8 @@ class _ReceiptPageState extends State<ReceiptPage> {
               pw.Text(
                 'Pedido #: ${widget.backendOrderNumber ?? widget.orderId}',
               ),
-              pw.Text('Fecha: ${widget.backendDate ?? widget.date}'),
-              pw.Text('Hora: ${widget.backendTime ?? widget.time}'),
+              pw.Text('Fecha: ${widget.date}'),
+              pw.Text('Hora: ${widget.time}'),
               pw.Text('Tipo de consumo: ${widget.dineOption}'),
               pw.Divider(),
               pw.Text(
@@ -756,11 +761,11 @@ class _ReceiptPageState extends State<ReceiptPage> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Fecha: ${widget.backendDate ?? widget.date}',
+                            'Fecha: ${widget.date}',
                             style: const TextStyle(fontWeight: FontWeight.w500),
                           ),
                           Text(
-                            'Hora: ${widget.backendTime ?? widget.time}',
+                            'Hora: ${widget.time}',
                             style: const TextStyle(fontWeight: FontWeight.w500),
                           ),
                         ],
@@ -873,7 +878,7 @@ class _ReceiptPageState extends State<ReceiptPage> {
                               ),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Color(0xFF0D6EFD),
+                              backgroundColor: const Color(0xFF128FA0),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -928,10 +933,16 @@ class _ReceiptPageState extends State<ReceiptPage> {
                       child: SizedBox(
                         height: 50,
                         child: ElevatedButton.icon(
-                          icon: const Icon(Icons.download),
-                          label: const Text('Descargar PDF'),
+                          icon: const Icon(Icons.download, color: Colors.white),
+                          label: const Text(
+                            'Descargar PDF',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF42A5F5),
+                            backgroundColor: const Color(0xFF128FA0),
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -946,10 +957,16 @@ class _ReceiptPageState extends State<ReceiptPage> {
                       child: SizedBox(
                         height: 50,
                         child: ElevatedButton.icon(
-                          icon: const Icon(Icons.share),
-                          label: const Text('Compartir'),
+                          icon: const Icon(Icons.share, color: Colors.white),
+                          label: const Text(
+                            'Compartir',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF66BB6A),
+                            backgroundColor: const Color(0xFFE80A5D),
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -978,15 +995,17 @@ class _ReceiptPageState extends State<ReceiptPage> {
                   onPressed: () =>
                       Navigator.popUntil(context, (route) => route.isFirst),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF6961),
+                    backgroundColor: Colors.white,
+                    elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
+                    side: const BorderSide(color: Color(0xFF128FA0)),
                   ),
                   child: const Text(
                     'Cerrar',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: Color(0xFF128FA0),
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1012,7 +1031,7 @@ class _ReceiptPageState extends State<ReceiptPage> {
             style: TextStyle(
               fontSize: isTotal ? 18 : 16,
               fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-              color: isTotal ? const Color(0xFF0D6EFD) : Colors.black,
+              color: isTotal ? const Color(0xFF128FA0) : Colors.black,
             ),
           ),
           Text(
@@ -1020,7 +1039,7 @@ class _ReceiptPageState extends State<ReceiptPage> {
             style: TextStyle(
               fontSize: isTotal ? 18 : 16,
               fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-              color: isTotal ? const Color(0xFF0D6EFD) : Colors.black,
+              color: isTotal ? const Color(0xFF128FA0) : Colors.black,
             ),
           ),
         ],

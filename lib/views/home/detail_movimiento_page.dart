@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
 import 'package:path_provider/path_provider.dart';
@@ -33,9 +34,9 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
       FlutterLocalNotificationsPlugin();
 
   // Datos de la empresa
-  final String _razonSocial = 'BUBBLE TEA BUBBLESPLASH';
-  final String _direccionEmpresa = 'Calle. Sargento Lores, Iquitos, Loreto';
-  final String _telefonoContacto = '+51 999 999 999';
+  final String _razonSocial = 'SPLASH BUBBLE';
+  final String _direccionEmpresa = 'Calle. Sargento Lores #762, Iquitos, Loreto';
+  final String _telefonoContacto = '+51 910 958 665';
 
   String _formatToppingsForUi(dynamic raw) {
     if (raw is List) {
@@ -100,6 +101,154 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
         SnackBar(content: Text('No se pudo abrir el PDF: $e')),
       );
     }
+  }
+
+  Future<void> _showPdfDescargadoSplash({
+    required String titulo,
+    required String mensaje,
+    VoidCallback? onVer,
+  }) async {
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (_) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF0F3D4A), Color(0xFF128FA0)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(18),
+                      topRight: Radius.circular(18),
+                    ),
+                  ),
+                  child: Row(
+                    children: const [
+                      Icon(Icons.picture_as_pdf,
+                          color: Colors.white, size: 26),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'PDF listo',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Icon(Icons.check_circle,
+                    color: Colors.green, size: 44),
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Column(
+                    children: [
+                      Text(
+                        titulo,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        mensaje,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.black.withOpacity(0.65),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
+                  child: Row(
+                    children: [
+                      if (onVer != null)
+                        Expanded(
+                          child: SizedBox(
+                            height: 44,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                Navigator.of(context).pop();
+                                onVer();
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF128FA0),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text(
+                                'Ver PDF',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (onVer != null) const SizedBox(width: 10),
+                      Expanded(
+                        child: SizedBox(
+                          height: 44,
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFF128FA0)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text(
+                              'Cerrar',
+                              style: TextStyle(
+                                color: Color(0xFF128FA0),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<File> _generarPdf({
@@ -269,14 +418,10 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
       setState(() => _pdfPath = tempFile.path);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('PDF descargado correctamente.'),
-          action: SnackBarAction(
-            label: 'Ver',
-            onPressed: () => _openPdf(tempFile.path),
-          ),
-        ),
+      await _showPdfDescargadoSplash(
+        titulo: 'PDF descargado correctamente',
+        mensaje: 'Tu comprobante se ha descargado con éxito.',
+        onVer: () => _openPdf(tempFile.path),
       );
 
       const AndroidNotificationDetails androidDetails =
@@ -338,6 +483,95 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
     }
   }
 
+  Future<void> _descargarPdfRecarga({
+    required double monto,
+    required String metodo,
+    required String id,
+    required String fechaSolo,
+    required String horaSolo,
+    required String cliente,
+  }) async {
+    try {
+      final pdf = pw.Document();
+
+      pw.Widget comprobanteWidget;
+      Uint8List? pngBytes;
+
+      final boundary =
+          _comprobanteKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary != null) {
+        final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
+        final byteData =
+            await image.toByteData(format: ui.ImageByteFormat.png);
+        if (byteData != null) {
+          pngBytes = byteData.buffer.asUint8List();
+        }
+      }
+
+      if (pngBytes != null) {
+        final imageProvider = pw.MemoryImage(pngBytes);
+        comprobanteWidget = pw.Center(
+          child: pw.Image(imageProvider, fit: pw.BoxFit.contain, width: 350),
+        );
+      } else {
+        comprobanteWidget = pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Center(
+              child: pw.Text(
+                'Comprobante de Recarga',
+                style: pw.TextStyle(
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
+            pw.SizedBox(height: 20),
+            pw.Text('Monto Recargado: S/ ${monto.toStringAsFixed(2)}'),
+            pw.Text('Método de Pago: $metodo'),
+            pw.Text('ID Transacción: ${id.isNotEmpty ? id : '-'}'),
+            pw.Text('Fecha: $fechaSolo'),
+            pw.Text('Hora: ${horaSolo.isNotEmpty ? horaSolo : '--:--'}'),
+            pw.SizedBox(height: 10),
+            pw.Text('Cliente: $cliente'),
+          ],
+        );
+      }
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            return pw.Padding(
+              padding: const pw.EdgeInsets.all(24),
+              child: comprobanteWidget,
+            );
+          },
+        ),
+      );
+
+      final dir = await getApplicationDocumentsDirectory();
+      final String safeId = (id.isNotEmpty
+              ? id.replaceAll(RegExp(r'[^A-Za-z0-9_\-]'), '')
+              : 'recarga')
+          .trim();
+      final file = File('${dir.path}/comprobante_recarga_${safeId}.pdf');
+      await file.writeAsBytes(await pdf.save(), flush: true);
+
+      if (!mounted) return;
+      await _showPdfDescargadoSplash(
+        titulo: 'PDF de recarga descargado correctamente',
+        mensaje: 'Tu comprobante de recarga se ha descargado con éxito.',
+        onVer: () => _openPdf(file.path),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error al descargar PDF de recarga.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final movimiento = widget.movimiento;
@@ -365,14 +599,23 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
     final esRecarga = movimiento.tipo == 'recarga';
     final esGasto = movimiento.tipo == 'gasto';
     final esCompra = movimiento.tipo == 'compra';
+    // Consideramos "Pedido" cuando viene de la app de pedidos o cuando
+    // el método registrado es "Compra de productos" (caso historial).
+    final esPedido =
+      (orderId.isNotEmpty && rawItems.isNotEmpty) ||
+      metodo.toLowerCase().contains('compra de productos');
 
     final monto = movimiento.monto;
 
     final String tituloPantalla = esRecarga
-        ? 'Comprobante de Recarga'
-        : (esCompra ? 'Comprobante de Compra' : 'Comprobante de Consumo');
+      ? 'Comprobante de Recarga'
+      : (esPedido
+        ? 'Comprobante de Pedido'
+        : (esCompra ? 'Comprobante de Compra' : 'Comprobante de Consumo'));
 
-    final String tituloPdf = esCompra ? 'Comprobante de Compra' : 'Comprobante de Consumo';
+    final String tituloPdf = esPedido
+      ? 'Comprobante de Pedido'
+      : (esCompra ? 'Comprobante de Compra' : 'Comprobante de Consumo');
 
     return Scaffold(
       appBar: AppBar(
@@ -392,43 +635,290 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
             // ✅ RECARGA (tu UI aquí si ya la tienes)
             // =========================
             if (esRecarga)
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
+              Column(
+                children: [
+                  RepaintBoundary(
+                    key: _comprobanteKey,
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: Colors.black12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 14),
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [Color(0xFF0F3D4A), Color(0xFF128FA0)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.only(
+                                  topLeft: Radius.circular(18),
+                                  topRight: Radius.circular(18),
+                                ),
+                              ),
+                              child: Row(
+                                children: const [
+                                  Icon(Icons.receipt_long, color: Colors.white),
+                                  SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Comprobante de recarga',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        SizedBox(height: 2),
+                                        Text(
+                                          'BubbleSplash Wallet',
+                                          style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 42,
+                                    height: 42,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: const Color(0xFFE3F2FD),
+                                      border: Border.all(color: Colors.black12),
+                                    ),
+                                    child: const Icon(Icons.storefront,
+                                        color: Colors.black87),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _razonSocial,
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _direccionEmpresa,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Contacto: $_telefonoContacto',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Divider(height: 1, color: Colors.black12),
+                            const SizedBox(height: 12),
+                            const Icon(Icons.check_circle,
+                                size: 48, color: Colors.green),
+                            const SizedBox(height: 8),
+                            const Text(
+                              '¡Recarga exitosa!',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: Text(
+                                'Tu recarga se ha procesado correctamente.',
+                                style: TextStyle(
+                                  color: Colors.black.withOpacity(0.55),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            const Divider(height: 1, color: Colors.black12),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: Text(
+                                'Monto recargado',
+                                style: TextStyle(
+                                  color: Colors.grey[800],
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 4),
+                              child: Text(
+                                'S/ ${monto.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Divider(height: 1, color: Colors.black12),
+                            const SizedBox(height: 10),
+                            const Text(
+                              'Detalles del comprobante',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            _rowDetalle(
+                              icon: Icons.tag,
+                              color: const Color(0xFFE80A5D),
+                              text:
+                                  'ID transacción: ${codigo.isNotEmpty ? codigo : '-'}',
+                            ),
+                            _rowDetalle(
+                              icon: Icons.credit_card,
+                              color: const Color(0xFFE80A5D),
+                              text: 'Método de pago: ${metodo.isNotEmpty ? metodo : '-'}',
+                            ),
+                            _rowDetalle(
+                              icon: Icons.calendar_today,
+                              color: const Color(0xFFE80A5D),
+                              text: 'Fecha: $fechaSolo',
+                            ),
+                            _rowDetalle(
+                              icon: Icons.access_time,
+                              color: const Color(0xFFE80A5D),
+                              text:
+                                  'Hora: ${horaSolo.isNotEmpty ? horaSolo : '--:--'}',
+                            ),
+                            _rowDetalle(
+                              icon: Icons.person,
+                              color: const Color(0xFFE80A5D),
+                              text: 'Cliente: $cliente',
+                            ),
+                            const SizedBox(height: 12),
+                            const _PerforatedEdge(),
+                            const SizedBox(height: 12),
+                          ],
+                        ),
                       ),
-                    ],
+                    ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        "Recarga exitosa",
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        "S/ ${monto.toStringAsFixed(2)}",
-                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 10),
-                      Text("Código: ${codigo.isNotEmpty ? codigo : '-'}"),
-                      if (metodo.isNotEmpty) Text("Método: $metodo"),
-                      Text("Fecha: $fechaSolo"),
-                      Text("Hora: ${horaSolo.isNotEmpty ? horaSolo : '--:--'}"),
-                      Text("Cliente: $cliente"),
-                    ],
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20.0, vertical: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 50,
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.download, color: Colors.white),
+                              label: const Text(
+                                'Descargar PDF',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF128FA0),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: () => _descargarPdfRecarga(
+                                monto: monto,
+                                metodo: metodo,
+                                id: codigo.isNotEmpty ? codigo : referencia,
+                                fechaSolo: fechaSolo,
+                                horaSolo: horaSolo,
+                                cliente: cliente,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: SizedBox(
+                            height: 50,
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.share, color: Colors.white),
+                              label: const Text(
+                                'Compartir',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFE80A5D),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: _compartirComprobanteImagen,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ),
 
             // =========================
@@ -480,7 +970,7 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       const Text(
-                                        'BUBBLE TEA BUBBLESPLASH',
+                                        'SPLASH BUBBLE',
                                         style: TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.w800,
@@ -489,7 +979,11 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        esCompra ? 'Comprobante de Compra' : 'Comprobante de Consumo',
+                                        esPedido
+                                            ? 'Comprobante de Pedido'
+                                            : (esCompra
+                                                ? 'Comprobante de Compra'
+                                                : 'Comprobante de Consumo'),
                                         style: const TextStyle(
                                           fontSize: 14,
                                           color: Colors.black54,
@@ -718,6 +1212,10 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
 
                             const SizedBox(height: 16),
 
+                            // Borde decorativo tipo boleta (triángulos)
+                            const _PerforatedEdge(),
+                            const SizedBox(height: 16),
+
                             Align(
                               alignment: Alignment.center,
                               child: Column(
@@ -753,12 +1251,20 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                           child: SizedBox(
                             height: 50,
                             child: ElevatedButton.icon(
-                              icon: const Icon(Icons.download),
-                              label: const Text('Descargar PDF'),
+                              icon: const Icon(Icons.download, color: Colors.white),
+                              label: const Text(
+                                'Descargar PDF',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF42A5F5),
+                                backgroundColor: const Color(0xFF128FA0),
                                 foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                               onPressed: () => _descargarPdf(
                                 rawItems: rawItems,
@@ -779,12 +1285,20 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                           child: SizedBox(
                             height: 50,
                             child: ElevatedButton.icon(
-                              icon: const Icon(Icons.share),
-                              label: const Text('Compartir'),
+                              icon: const Icon(Icons.share, color: Colors.white),
+                              label: const Text(
+                                'Compartir',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF66BB6A),
+                                backgroundColor: const Color(0xFFE80A5D),
                                 foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                               onPressed: _compartirComprobanteImagen,
                             ),
@@ -828,13 +1342,19 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                 height: 50,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0D6EFD),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    backgroundColor: const Color(0xFF128FA0),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   onPressed: () => Navigator.pop(context),
                   child: const Text(
                     'Cerrar',
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
@@ -853,13 +1373,47 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
     required String text,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(width: 10),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
-        ],
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Align(
+        alignment: Alignment.center,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.grey.shade200),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.03),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, size: 18, color: color),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1002,5 +1556,55 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
         ],
       ),
     );
+  }
+}
+
+// ===============================
+// 🎟️ Borde tipo boleta (triángulos)
+// ===============================
+class _PerforatedEdge extends StatelessWidget {
+  const _PerforatedEdge();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 14,
+      child: CustomPaint(
+        painter: _PerforatedEdgePainter(
+          color: Colors.grey.shade300,
+        ),
+      ),
+    );
+  }
+}
+
+class _PerforatedEdgePainter extends CustomPainter {
+  final Color color;
+
+  _PerforatedEdgePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    const double triangleWidth = 18;
+    final double triangleHeight = size.height;
+
+    for (double x = 0; x < size.width; x += triangleWidth) {
+      final path = Path()
+        ..moveTo(x, 0)
+        ..lineTo(x + triangleWidth / 2, triangleHeight)
+        ..lineTo(x + triangleWidth, 0)
+        ..close();
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _PerforatedEdgePainter oldDelegate) {
+    return oldDelegate.color != color;
   }
 }

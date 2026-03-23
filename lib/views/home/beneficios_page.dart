@@ -1875,12 +1875,6 @@ class _ConfirmRedeemDialog extends StatelessWidget {
     const IconData benefitsIcon = Icons.card_giftcard_rounded;
 
     final viewInsetsBottom = MediaQuery.of(context).viewInsets.bottom;
-    final screenH = MediaQuery.of(context).size.height;
-
-    // ✅ máximo alto del modal, restando teclado si existe
-    final maxH = (screenH * 0.82).clamp(260.0, screenH - 48);
-    final effectiveH = (maxH - (viewInsetsBottom > 0 ? viewInsetsBottom * 0.2 : 0))
-        .clamp(260.0, maxH);
 
     return Dialog(
       elevation: 0,
@@ -1903,226 +1897,168 @@ class _ConfirmRedeemDialog extends StatelessWidget {
                 ),
               ],
             ),
-            child: SizedBox(
-              height: effectiveH, // ✅ acota SIEMPRE
-              child: Column(
-                mainAxisSize: MainAxisSize.max,
-                children: [
-                  // HEADER
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [_brandDeep, _brandMid],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.18),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.26),
-                              width: 1,
-                            ),
-                          ),
-                          child: const Icon(benefitsIcon, color: Colors.white, size: 22),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.2,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Beneficios • Splash Bubble',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.75),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.of(context).pop(false),
-                          icon: const Icon(Icons.close_rounded),
-                          color: Colors.white.withOpacity(0.95),
-                          splashRadius: 22,
-                        ),
-                      ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // HEADER
+                Container(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [_brandDeep, _brandMid],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
                   ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.26),
+                            width: 1,
+                          ),
+                        ),
+                        child: const Icon(benefitsIcon, color: Colors.white, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(false),
+                        icon: const Icon(Icons.close_rounded),
+                        color: Colors.white.withOpacity(0.95),
+                        splashRadius: 18,
+                      ),
+                    ],
+                  ),
+                ),
 
-                  // BODY (SCROLL)
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                // BODY (sin altura máxima)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF111827),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.stars_rounded, size: 16, color: Colors.white),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      highlight,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              const Expanded(
-                                child: Text(
-                                  'Acción irreversible',
-                                  style: TextStyle(
-                                    color: Color(0xFF6B7280),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            message,
-                            style: const TextStyle(
-                              color: Color(0xFF111827),
-                              fontSize: 13.5,
-                              height: 1.35,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
                           Container(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
+                              color: const Color(0xFF111827),
+                              borderRadius: BorderRadius.circular(999),
                             ),
-                            child: const Row(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.lock_clock_rounded, size: 18, color: Color(0xFF0F3D4A)),
-                                SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    'Una vez canjeado, el beneficio quedará marcado como usado.',
-                                    style: TextStyle(
-                                      color: Color(0xFF374151),
-                                      fontSize: 12.5,
-                                      height: 1.3,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                                const Icon(Icons.stars_rounded, size: 16, color: Colors.white),
+                                const SizedBox(width: 6),
+                                Text(
+                                  highlight,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 10.5,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(height: 6),
                         ],
                       ),
-                    ),
+                      const SizedBox(height: 6),
+                      Text(
+                        message,
+                        style: const TextStyle(
+                          color: Color(0xFF111827),
+                          fontSize: 12.5,
+                          height: 1.25,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
+                ),
 
-                  // ACTIONS
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.of(context).pop(false),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 13),
-                              side: const BorderSide(color: Color(0xFFE5E7EB)),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
+                // ACTIONS
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 9),
+                            side: const BorderSide(color: Color(0xFFE5E7EB)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Text(
+                            'Cancelar',
+                            style: TextStyle(
+                              color: Color(0xFF111827),
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: DecoratedBox(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [_brandDeep, _brandMid],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
                               ),
                             ),
-                            child: const Text(
-                              'Cancelar',
-                              style: TextStyle(
-                                color: Color(0xFF111827),
-                                fontWeight: FontWeight.w900,
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.of(context).pop(true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(vertical: 9),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: const Text(
+                                'Sí, canjear',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.2,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
-                            child: DecoratedBox(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [_brandDeep, _brandMid],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                              ),
-                              child: ElevatedButton(
-                                onPressed: () => Navigator.of(context).pop(true),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  shadowColor: Colors.transparent,
-                                  elevation: 0,
-                                  padding: const EdgeInsets.symmetric(vertical: 13),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Sí, canjear',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 0.2,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),

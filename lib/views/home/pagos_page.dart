@@ -22,7 +22,7 @@ import 'package:http/http.dart' as http;
 import 'package:bubblesplash/services/auth_service.dart';
 import 'package:bubblesplash/widgets/cart_fab_button.dart';
 
-import 'scanner_page.dart';
+// import 'scanner_page.dart'; // Desactivado: pantalla de escaneo QR
 import 'movimientos_page.dart';
 import 'movimiento.dart';
 import 'detail_movimiento_page.dart';
@@ -440,20 +440,20 @@ class _PagosPageState extends State<PagosPage> {
                   [
                     Row(
                       children: [
-                        Expanded(
-                          child: _ActionCard(
-                            title: 'Escanear',
-                            subtitle: 'QR / pagos',
-                            icon: Ionicons.camera_outline,
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => const ScannerPage()),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
+                        // Expanded(
+                        //   child: _ActionCard(
+                        //     title: 'Escanear',
+                        //     subtitle: 'QR / pagos',
+                        //     icon: Ionicons.camera_outline,
+                        //     onTap: () {
+                        //       Navigator.push(
+                        //         context,
+                        //         MaterialPageRoute(builder: (_) => const ScannerPage()),
+                        //       );
+                        //     },
+                        //   ),
+                        // ),
+                        // const SizedBox(width: 12),
                         Expanded(
                           child: _ActionCard(
                             title: 'Movimientos',
@@ -496,9 +496,10 @@ class _PagosPageState extends State<PagosPage> {
                           }
 
                           final data = snapshot.data ?? [];
+                          // Mostramos solo recargas y compras/gastos relevantes
                           final filtrados = data.where((m) {
                             final tipo = (m['tipo'] ?? '').toString();
-                            return tipo == 'recarga' || tipo == 'movimiento';
+                            return tipo == 'recarga' || tipo == 'gasto' || tipo == 'compra';
                           }).toList();
 
                           if (filtrados.isEmpty) {
@@ -920,87 +921,189 @@ class _PagosPageState extends State<PagosPage> {
   // ===============================
   Future<List<Map<String, dynamic>>> _cargarMovimientosPreview() async {
     try {
+      // 1) Movimientos de la API (solo RECARGAS)
+      List<Map<String, dynamic>> apiMovimientos = [];
+
       final prefs = await SharedPreferences.getInstance();
       final rawToken = prefs.getString('access_token');
 
-      if (rawToken == null || rawToken.trim().isEmpty) {
-        debugPrint('No hay access_token para consultar movimientos (preview)');
-        return [];
-      }
+      if (rawToken != null && rawToken.trim().isNotEmpty) {
+        final token = rawToken.trim();
+        final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/movimientos/');
 
-      final token = rawToken.trim();
-      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/movimientos/');
+        http.Response response = await http.get(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        );
 
-      http.Response response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
-
-      if (response.statusCode == 401) {
-        debugPrint('Sesión expirada al consultar movimientos (preview)');
-        return [];
-      }
-
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
-
-        return data.whereType<Map<String, dynamic>>().map((item) {
-          final String rawType = (item['wmv_txt_type'] ?? '').toString();
-          final String tipo = rawType.toUpperCase() == 'RECARGA' ? 'recarga' : 'movimiento';
-
-          final String amountStr = (item['wmv_de_amount'] ?? '0').toString();
-          final double monto = double.tryParse(amountStr) ?? 0.0;
-
-          final String descripcion = (item['wmv_txt_description'] ?? '').toString();
-          final String fechaIso = (item['timestamp_datecreate'] ?? '').toString();
-
-          String fecha = fechaIso;
-          if (fechaIso.contains('T')) {
-            try {
-              fecha = fechaIso.replaceFirst('T', ' ').substring(0, 16);
-            } catch (_) {
-              fecha = fechaIso;
-            }
+        if (response.statusCode == 401 && await AuthService.refreshToken()) {
+          final newToken = prefs.getString('access_token')?.trim();
+          if (newToken != null && newToken.isNotEmpty) {
+            response = await http.get(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': 'Bearer $newToken',
+              },
+            );
           }
+        }
 
-          final String id = (item['wmv_int_id'] ?? '').toString();
+        if (response.statusCode == 200) {
+          final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
 
-          return <String, dynamic>{
-            'tipo': tipo,
-            'monto': monto,
-            'metodo': descripcion,
-            'referencia': id,
-            'fecha': fecha,
-            'codigo': 'MOV$id',
-            'cliente': _nombreCliente ?? 'Cliente',
-          };
-        }).toList();
+          // Igual que en MovimientosPage: solo usamos RECARGA desde la API.
+          apiMovimientos = data.whereType<Map<String, dynamic>>().map((item) {
+            final String rawType = (item['wmv_txt_type'] ?? '').toString();
+            final bool esRecarga = rawType.toUpperCase() == 'RECARGA';
+            if (!esRecarga) return null; // ignorar gastos de la API
+
+            final String amountStr = (item['wmv_de_amount'] ?? '0').toString();
+            final double monto = double.tryParse(amountStr) ?? 0.0;
+
+            final String descripcion = (item['wmv_txt_description'] ?? '').toString();
+            final String fechaIso = (item['timestamp_datecreate'] ?? '').toString();
+
+            String fecha = fechaIso;
+            if (fechaIso.contains('T')) {
+              try {
+                fecha = fechaIso.replaceFirst('T', ' ').substring(0, 16);
+              } catch (_) {
+                fecha = fechaIso;
+              }
+            }
+
+            final String id = (item['wmv_int_id'] ?? '').toString();
+
+            return <String, dynamic>{
+              'tipo': 'recarga',
+              'monto': monto,
+              'metodo': descripcion,
+              'referencia': id,
+              'fecha': fecha,
+              'codigo': 'MOV$id',
+              'cliente': _nombreCliente ?? 'Cliente',
+            };
+          }).whereType<Map<String, dynamic>>().toList();
+        } else if (response.statusCode == 401) {
+          debugPrint('Sesión expirada al consultar movimientos (preview)');
+        } else {
+          debugPrint('Error al cargar movimientos (preview): ${response.statusCode} ${response.body}');
+        }
       } else {
-        debugPrint('Error al cargar movimientos (preview): ${response.statusCode} ${response.body}');
-        return [];
+        debugPrint('No hay access_token para consultar movimientos (preview)');
       }
+
+      // 2) Movimientos locales (compras/pedidos y pagos QR)
+      final locales = await _cargarMovimientosLocalesPreview();
+
+      // 3) Unificar y ordenar, priorizando locales (igual criterio que MovimientosPage)
+      final todos = _mergeMovimientosPreview(locales, apiMovimientos);
+      return todos;
     } catch (e) {
       debugPrint('Excepción al cargar movimientos (preview): $e');
       return [];
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _cargarMovimientosLocalesPreview() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final user = FirebaseAuth.instance.currentUser;
+      final String? keyMovs = user != null ? 'movimientos_${user.uid}' : null;
+      final List<String> data =
+          keyMovs != null ? (prefs.getStringList(keyMovs) ?? <String>[]) : <String>[];
+
+      final List<Map<String, dynamic>> parsed = [];
+      for (final raw in data) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map) {
+            parsed.add(Map<String, dynamic>.from(decoded));
+          }
+        } catch (_) {
+          // Ignorar entradas corruptas
+        }
+      }
+      return parsed;
+    } catch (e) {
+      debugPrint('Excepción al cargar movimientos locales (preview): $e');
+      return [];
+    }
+  }
+
+  DateTime _parseFechaMovimientoPreview(Map<String, dynamic> m) {
+    final fecha = (m['fecha'] ?? '').toString().trim();
+    if (fecha.isEmpty) {
+      return DateTime.fromMillisecondsSinceEpoch(0);
+    }
+
+    try {
+      if (fecha.contains('T')) {
+        return DateTime.tryParse(fecha) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      }
+      if (RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(fecha)) {
+        final normalized = fecha.contains(' ') ? fecha.replaceFirst(' ', 'T') : fecha;
+        return DateTime.tryParse(normalized) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      }
+    } catch (_) {}
+
+    try {
+      final parts = fecha.split(' ');
+      final datePart = parts.isNotEmpty ? parts[0] : fecha;
+      final timePart = parts.length > 1 ? parts[1] : '00:00';
+      final d = datePart.split('/');
+      final t = timePart.split(':');
+      if (d.length == 3) {
+        final day = int.tryParse(d[0]) ?? 1;
+        final month = int.tryParse(d[1]) ?? 1;
+        final year = int.tryParse(d[2]) ?? 1970;
+        final hour = t.isNotEmpty ? int.tryParse(t[0]) ?? 0 : 0;
+        final minute = t.length > 1 ? int.tryParse(t[1]) ?? 0 : 0;
+        return DateTime(year, month, day, hour, minute);
+      }
+    } catch (_) {}
+
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  String _dedupeKeyPreview(Map<String, dynamic> m) {
+    final codigo = (m['codigo'] ?? '').toString().trim();
+    if (codigo.isNotEmpty) return 'codigo:$codigo';
+    final tipo = (m['tipo'] ?? '').toString();
+    final monto = (m['monto'] ?? '').toString();
+    final fecha = (m['fecha'] ?? '').toString();
+    final ref = (m['referencia'] ?? '').toString();
+    return 't:$tipo|m:$monto|f:$fecha|r:$ref';
+  }
+
+  List<Map<String, dynamic>> _mergeMovimientosPreview(
+    List<Map<String, dynamic>> locales,
+    List<Map<String, dynamic>> api,
+  ) {
+    final out = <Map<String, dynamic>>[];
+    final seen = <String>{};
+
+    void addAll(List<Map<String, dynamic>> src) {
+      for (final m in src) {
+        final key = _dedupeKeyPreview(m);
+        if (seen.add(key)) {
+          out.add(m);
+        }
+      }
+    }
+
+    // Preferimos los locales (tienen info de pedidos, items, etc.)
+    addAll(locales);
+    addAll(api);
+
+    out.sort((a, b) => _parseFechaMovimientoPreview(b).compareTo(_parseFechaMovimientoPreview(a)));
+    return out;
   }
 
   // ===============================
@@ -1218,9 +1321,13 @@ class _PagosPageState extends State<PagosPage> {
                       children: [
                         Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                           decoration: const BoxDecoration(
-                            color: Color(0xFFE3F2FD),
+                            gradient: LinearGradient(
+                              colors: [Color(0xFF0F3D4A), Color(0xFF128FA0)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
                             borderRadius: BorderRadius.only(
                               topLeft: Radius.circular(18),
                               topRight: Radius.circular(18),
@@ -1228,14 +1335,30 @@ class _PagosPageState extends State<PagosPage> {
                           ),
                           child: Row(
                             children: const [
-                              Icon(Icons.receipt_long, color: Colors.black87),
-                              SizedBox(width: 8),
-                              Text(
-                                "Comprobante de recarga",
-                                style: TextStyle(
-                                  color: Colors.black,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
+                              Icon(Icons.receipt_long, color: Colors.white),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "Comprobante de recarga",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      "BubbleSplash Wallet",
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
@@ -1332,6 +1455,10 @@ class _PagosPageState extends State<PagosPage> {
                         _buildDetailRow(Icons.person, "Cliente", _nombreCliente ?? 'Cliente'),
                         const SizedBox(height: 10),
 
+                        // Borde tipo ticket debajo de los detalles
+                        const _PerforatedEdgeRecarga(),
+                        const SizedBox(height: 10),
+
                         Container(
                           margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                           padding: const EdgeInsets.all(10),
@@ -1391,13 +1518,18 @@ class _PagosPageState extends State<PagosPage> {
                               puntosGanados,
                             );
                           },
-                          icon: const Icon(Icons.download, color: Colors.black),
-                          label: const Text("Descargar", style: TextStyle(color: Colors.black)),
+                          icon: const Icon(Icons.download, color: Colors.white),
+                          label: const Text(
+                            "Descargar",
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                          ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
+                            backgroundColor: const Color(0xFF128FA0),
+                            foregroundColor: Colors.white,
                             elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            side: const BorderSide(color: Colors.black12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
@@ -1409,13 +1541,18 @@ class _PagosPageState extends State<PagosPage> {
                           onPressed: () async {
                             await _capturarYCompartirComprobante();
                           },
-                          icon: const Icon(Icons.share, color: Colors.black),
-                          label: const Text("Compartir", style: TextStyle(color: Colors.black)),
+                          icon: const Icon(Icons.share, color: Colors.white),
+                          label: const Text(
+                            "Compartir",
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                          ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
+                            backgroundColor: const Color(0xFFE80A5D),
+                            foregroundColor: Colors.white,
                             elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            side: const BorderSide(color: Colors.black12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
@@ -1433,13 +1570,19 @@ class _PagosPageState extends State<PagosPage> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white,
                         elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        side: const BorderSide(color: Colors.black12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        side: const BorderSide(color: Color(0xFF128FA0)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                       child: const Text(
                         "Regresar",
-                        style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16),
+                        style: TextStyle(
+                          color: Color(0xFF128FA0),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
                     ),
                   ),
@@ -1453,25 +1596,70 @@ class _PagosPageState extends State<PagosPage> {
   }
 
   Widget _buildDetailRow(IconData icon, String label, String value) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: const Color(0xFFE80A5D), size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              "$label: $value",
-              style: const TextStyle(fontSize: 14, color: Colors.black87),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Align(
+        alignment: Alignment.center,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey.shade200),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.03),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFFE0EC), Color(0xFFFFF1F7)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: const Color(0xFFE80A5D), size: 18),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.black.withOpacity(0.6),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        value,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Colors.black,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1543,8 +1731,20 @@ class _PagosPageState extends State<PagosPage> {
       );
 
       final dir = await getApplicationDocumentsDirectory();
-      final file = File("${dir.path}/comprobante_recarga.pdf");
-      await file.writeAsBytes(await pdf.save());
+
+      // Normalizamos el id para usarlo en el nombre del archivo
+      final String safeId = (id.isNotEmpty
+              ? id.replaceAll(RegExp(r'[^A-Za-z0-9_\-]'), '')
+              : 'ultimo')
+          .trim();
+
+      final fileConId = File("${dir.path}/comprobante_recarga_${safeId}.pdf");
+      final fileGenerico = File("${dir.path}/comprobante_recarga.pdf");
+      final bytes = await pdf.save();
+
+      // Guardamos tanto con id específico como con nombre genérico
+      await fileConId.writeAsBytes(bytes);
+      await fileGenerico.writeAsBytes(bytes);
 
       await _showPremiumModal(
         title: 'PDF guardado',
@@ -1555,7 +1755,7 @@ class _PagosPageState extends State<PagosPage> {
       );
 
       try {
-        final result = await OpenFile.open(file.path);
+        final result = await OpenFile.open(fileConId.path);
         if (result.type != ResultType.done) {
           await _showPremiumModal(
             title: 'No se pudo abrir',
@@ -1629,6 +1829,56 @@ class _PagosPageState extends State<PagosPage> {
         accent: const Color(0xFFE53935),
       );
     }
+  }
+}
+
+// ===============================
+// 🎟️ Borde tipo ticket para recarga
+// ===============================
+class _PerforatedEdgeRecarga extends StatelessWidget {
+  const _PerforatedEdgeRecarga();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 14,
+      child: CustomPaint(
+        painter: _PerforatedEdgeRecargaPainter(
+          color: Colors.grey.shade300,
+        ),
+      ),
+    );
+  }
+}
+
+class _PerforatedEdgeRecargaPainter extends CustomPainter {
+  final Color color;
+
+  _PerforatedEdgeRecargaPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    const double triangleWidth = 18;
+    final double triangleHeight = size.height;
+
+    for (double x = 0; x < size.width; x += triangleWidth) {
+      final path = Path()
+        ..moveTo(x, 0)
+        ..lineTo(x + triangleWidth / 2, triangleHeight)
+        ..lineTo(x + triangleWidth, 0)
+        ..close();
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _PerforatedEdgeRecargaPainter oldDelegate) {
+    return oldDelegate.color != color;
   }
 }
 
@@ -1707,20 +1957,29 @@ class MovimientoItemPremium extends StatelessWidget {
                           // Buscar el comprobante PDF por ID
                           try {
                             final dir = await getApplicationDocumentsDirectory();
-                            final id = (movimientoRaw['referencia'] ?? '').toString();
-                            final file = File("${dir.path}/comprobante_recarga_$id.pdf");
-                            if (await file.exists()) {
-                              await OpenFile.open(file.path);
-                            } else {
-                              // Si no existe, intentar con el nombre genérico
-                              final generic = File("${dir.path}/comprobante_recarga.pdf");
-                              if (await generic.exists()) {
-                                await OpenFile.open(generic.path);
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('No se encontró el comprobante PDF.')),
-                                );
+                            final rawId = (movimientoRaw['referencia'] ?? '').toString();
+                            final idConMov = rawId.startsWith('MOV') ? rawId : 'MOV$rawId';
+
+                            final candidates = <File>[
+                              File("${dir.path}/comprobante_recarga_$idConMov.pdf"),
+                              File("${dir.path}/comprobante_recarga_$rawId.pdf"),
+                              File("${dir.path}/comprobante_recarga.pdf"),
+                            ];
+
+                            File? found;
+                            for (final f in candidates) {
+                              if (await f.exists()) {
+                                found = f;
+                                break;
                               }
+                            }
+
+                            if (found != null) {
+                              await OpenFile.open(found.path);
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('No se encontró el comprobante PDF.')),
+                              );
                             }
                           } catch (e) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -1736,86 +1995,21 @@ class MovimientoItemPremium extends StatelessWidget {
             },
           );
         } else {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) {
-              final String metodo = (movimientoRaw['metodo'] ?? 'Compra').toString();
-              final String id = (movimientoRaw['codigo'] ?? '').toString();
-              final String cliente = (movimientoRaw['cliente'] ?? 'Cliente').toString();
-              return Dialog(
-                insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: const [
-                            Icon(Icons.receipt_long_rounded),
-                            SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'Comprobante de compra',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.03),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.black.withOpacity(0.06)),
-                          ),
-                          child: Column(
-                            children: [
-                              Text(
-                                'S/ ${monto.toStringAsFixed(2)}',
-                                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                isRecarga ? 'Recarga' : 'Compra',
-                                style: TextStyle(color: Colors.black.withOpacity(0.55), fontWeight: FontWeight.w700),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        _miniRow('ID', id),
-                        _miniRow('Método', metodo),
-                        _miniRow('Fecha', fecha),
-                        _miniRow('Cliente', cliente),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                              side: BorderSide(color: Colors.black.withOpacity(0.08)),
-                            ),
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text(
-                              'Regresar',
-                              style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900),
-                            ),
-                          ),
-                        )
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
+          // Para compras/pedidos, mostrar el mismo comprobante detallado
+          // que en el historial de movimientos.
+          final movimiento = Movimiento(
+            titulo: title,
+            monto: monto,
+            tipo: tipo,
+            fecha: fecha,
+          );
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => DetalleMovimientoPage(
+                movimiento: movimiento,
+                datosAdicionales: movimientoRaw,
+              ),
+            ),
           );
         }
       },

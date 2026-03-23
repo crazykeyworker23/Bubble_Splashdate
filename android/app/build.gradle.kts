@@ -27,10 +27,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
         isCoreLibraryDesugaringEnabled = true
     }
-    tasks.withType<JavaCompile> {
-        options.compilerArgs.add("-Xlint:deprecation")
-        options.compilerArgs.add("-Xlint:unchecked")
-    }
 
     kotlinOptions {
         jvmTarget = JavaVersion.VERSION_11.toString()

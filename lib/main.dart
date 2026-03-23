@@ -21,13 +21,13 @@ Future<void> main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Barra de navegación y status bar transparentes (Android)
+  // Configuración de sistema en modo edge-to-edge sin cambiar colores
+  // para evitar el uso de APIs obsoletas en Android 15+.
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: Colors.transparent,
-      systemNavigationBarDividerColor: Colors.transparent,
       systemNavigationBarIconBrightness: Brightness.dark,
       systemNavigationBarContrastEnforced: false,
     ),

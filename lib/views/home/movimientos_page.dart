@@ -211,12 +211,18 @@ class _MovimientosPageState extends State<MovimientosPage> {
           final List<dynamic> data =
               jsonDecode(response.body) as List<dynamic>;
 
+          // Solo usamos de la API los movimientos de tipo RECARGA.
+          // Los gastos (compras/pagos de pedido) ya se registran de forma local
+          // en ReceiptPage y ScannerPage, y mostrarlos de la API duplica
+          // comprobantes como "Pago de pedido".
           apiMovimientos = data.whereType<Map<String, dynamic>>().map((item) {
             final String rawType =
                 (item['wmv_txt_type'] ?? '').toString();
-            // Importante: DetalleMovimientoPage renderiza boleta de consumo cuando tipo == 'gasto'
-            final String tipo =
-                rawType.toUpperCase() == 'RECARGA' ? 'recarga' : 'gasto';
+            final bool esRecarga = rawType.toUpperCase() == 'RECARGA';
+
+            if (!esRecarga) {
+              return null; // Ignoramos gastos de la API
+            }
 
             final String amountStr =
                 (item['wmv_de_amount'] ?? '0').toString();
@@ -239,14 +245,14 @@ class _MovimientosPageState extends State<MovimientosPage> {
             final String id = (item['wmv_int_id'] ?? '').toString();
 
             return <String, dynamic>{
-              'tipo': tipo,
+              'tipo': 'recarga',
               'monto': monto,
               'metodo': descripcion,
               'referencia': id,
               'fecha': fecha,
               'codigo': 'MOV$id',
             };
-          }).toList();
+          }).whereType<Map<String, dynamic>>().toList();
         } else {
           debugPrint(
               'Error al cargar movimientos (API): ${response.statusCode} ${response.body}');
@@ -275,7 +281,7 @@ class _MovimientosPageState extends State<MovimientosPage> {
               itemBuilder: (context, i) {
                 final m = movimientosRaw[i];
                 final tipo = (m['tipo'] ?? '').toString();
-                final metodo = (m['metodo'] ?? '').toString();
+                final metodoRaw = (m['metodo'] ?? '').toString();
                 final referencia = (m['referencia'] ?? '').toString();
                 final fecha = (m['fecha'] ?? '').toString();
                 final codigo = (m['codigo'] ?? '').toString();
@@ -292,8 +298,19 @@ class _MovimientosPageState extends State<MovimientosPage> {
                   tituloBase = 'COMPRA';
                 }
 
+                // Normalizar el texto del método que se muestra al usuario.
+                // Si el backend devuelve algo como "Pago de pedido" pero en la
+                // app lo manejamos como una compra normal, mostramos
+                // "Compra de productos" para evitar confusión.
+                String metodoUi = metodoRaw;
+                if (tituloBase == 'COMPRA' &&
+                    metodoUi.toLowerCase().contains('pedido')) {
+                  metodoUi = 'Compra de productos';
+                }
+
                 // Forzar items vacío para todos los gastos si no existe, para mostrar comprobante detallado
-                final datosAdicionales = Map<String, dynamic>.from(m);
+                final datosAdicionales = Map<String, dynamic>.from(m)
+                  ..['metodo'] = metodoUi;
                 if (tipo == 'gasto' && datosAdicionales['items'] == null) {
                   datosAdicionales['items'] = <dynamic>[];
                 }
@@ -332,7 +349,7 @@ class _MovimientosPageState extends State<MovimientosPage> {
                       ],
                     ),
                     subtitle: Text(
-                      '$metodo | $fecha\nRef: $referencia',
+                      '$metodoUi | $fecha\nRef: $referencia',
                     ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -351,20 +368,30 @@ class _MovimientosPageState extends State<MovimientosPage> {
                                   onPressed: () async {
                                     try {
                                       final dir = await getApplicationDocumentsDirectory();
-                                      final id = (m['referencia'] ?? '').toString();
-                                      final file = File("${dir.path}/comprobante_recarga_$id.pdf");
-                                      if (await file.exists()) {
-                                        await OpenFile.open(file.path);
-                                      } else {
-                                        // Si no existe, intentar con el nombre genérico
-                                        final generic = File("${dir.path}/comprobante_recarga.pdf");
-                                        if (await generic.exists()) {
-                                          await OpenFile.open(generic.path);
-                                        } else {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('No se encontró el comprobante PDF.')),
-                                          );
+                                      final rawId = (m['referencia'] ?? '').toString();
+                                      final idConMov = rawId.startsWith('MOV') ? rawId : 'MOV$rawId';
+
+                                      // Intentar primero con el formato nuevo (MOV<id>), luego con el id crudo y por último el genérico
+                                      final candidates = <File>[
+                                        File("${dir.path}/comprobante_recarga_$idConMov.pdf"),
+                                        File("${dir.path}/comprobante_recarga_$rawId.pdf"),
+                                        File("${dir.path}/comprobante_recarga.pdf"),
+                                      ];
+
+                                      File? found;
+                                      for (final f in candidates) {
+                                        if (await f.exists()) {
+                                          found = f;
+                                          break;
                                         }
+                                      }
+
+                                      if (found != null) {
+                                        await OpenFile.open(found.path);
+                                      } else {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('No se encontró el comprobante PDF.')),
+                                        );
                                       }
                                     } catch (e) {
                                       ScaffoldMessenger.of(context).showSnackBar(
@@ -379,13 +406,25 @@ class _MovimientosPageState extends State<MovimientosPage> {
                                   onPressed: () async {
                                     try {
                                       final dir = await getApplicationDocumentsDirectory();
-                                      final id = (m['referencia'] ?? '').toString();
-                                      File file = File("${dir.path}/comprobante_recarga_$id.pdf");
-                                      if (!await file.exists()) {
-                                        file = File("${dir.path}/comprobante_recarga.pdf");
+                                      final rawId = (m['referencia'] ?? '').toString();
+                                      final idConMov = rawId.startsWith('MOV') ? rawId : 'MOV$rawId';
+
+                                      final candidates = <File>[
+                                        File("${dir.path}/comprobante_recarga_$idConMov.pdf"),
+                                        File("${dir.path}/comprobante_recarga_$rawId.pdf"),
+                                        File("${dir.path}/comprobante_recarga.pdf"),
+                                      ];
+
+                                      File? found;
+                                      for (final f in candidates) {
+                                        if (await f.exists()) {
+                                          found = f;
+                                          break;
+                                        }
                                       }
-                                      if (await file.exists()) {
-                                        await Share.shareXFiles([XFile(file.path)], text: 'Comprobante de recarga');
+
+                                      if (found != null) {
+                                        await Share.shareXFiles([XFile(found.path)], text: 'Comprobante de recarga');
                                       } else {
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           const SnackBar(content: Text('No se encontró el comprobante PDF para compartir.')),
