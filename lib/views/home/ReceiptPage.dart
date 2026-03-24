@@ -433,6 +433,20 @@ class _ReceiptPageState extends State<ReceiptPage> {
                   ),
                 ],
               ),
+              pw.SizedBox(height: 12),
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.all(8),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.yellow,
+                  borderRadius: pw.BorderRadius.circular(6),
+                  border: pw.Border.all(color: PdfColors.amber),
+                ),
+                child: pw.Text(
+                  'Atendemos pedidos de lunes a sábado de 9:00 a.m. a 7:00 p.m. Si realizas tu pedido fuera de este horario, se procesará en el siguiente día de atención.',
+                  style: pw.TextStyle(fontSize: 9, color: PdfColors.brown),
+                ),
+              ),
               pw.SizedBox(height: 20),
               pw.Text(
                 'Código de compra: $_codigoCompra',
@@ -856,6 +870,26 @@ class _ReceiptPageState extends State<ReceiptPage> {
 
                       // 🔹 Totales
                       _buildPriceRow('TOTAL', total, isTotal: true),
+
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF3CD),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFFFEEBA)),
+                        ),
+                        child: const Text(
+                          'Atendemos pedidos de lunes a sábado de 9:00 a.m. a 7:00 p.m. Si realizas tu pedido fuera de este horario, se procesará en el siguiente día de atención.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF856404),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
 
                       const SizedBox(height: 40),
 

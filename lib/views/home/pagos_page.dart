@@ -1303,10 +1303,17 @@ class _PagosPageState extends State<PagosPage> {
         return Dialog(
           insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minWidth: constraints.maxWidth,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                 RepaintBoundary(
                   key: _comprobanteKey,
                   child: Container(
@@ -1587,8 +1594,11 @@ class _PagosPageState extends State<PagosPage> {
                     ),
                   ),
                 ),
-              ],
-            ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         );
       },

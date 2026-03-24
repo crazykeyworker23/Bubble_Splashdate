@@ -369,6 +369,22 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                       style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
                 ],
               ),
+              if (tituloPdf.contains('Pedido')) ...[
+                pw.SizedBox(height: 12),
+                pw.Container(
+                  width: double.infinity,
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.yellow,
+                    borderRadius: pw.BorderRadius.circular(6),
+                    border: pw.Border.all(color: PdfColors.amber),
+                  ),
+                  child: pw.Text(
+                    'Atendemos pedidos de lunes a sábado de 9:00 a.m. a 7:00 p.m. Si realizas tu pedido fuera de este horario, se procesará en el siguiente día de atención.',
+                    style: pw.TextStyle(fontSize: 9, color: PdfColors.brown),
+                  ),
+                ),
+              ],
               pw.SizedBox(height: 20),
               pw.Text(
                 'Código: ${codigo.isNotEmpty ? codigo : '-'}',
@@ -626,9 +642,15 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
         backgroundColor: const Color(0xFF1B6F81),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
+                  children: [
             const SizedBox(height: 14),
 
             // =========================
@@ -1212,6 +1234,26 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
 
                             const SizedBox(height: 16),
 
+                            if (esPedido)
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF3CD),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFFFEEBA)),
+                                ),
+                                child: const Text(
+                                  'Atendemos pedidos de lunes a sábado de 9:00 a.m. a 7:00 p.m. Si realizas tu pedido fuera de este horario, se procesará en el siguiente día de atención.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF856404),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+
                             // Borde decorativo tipo boleta (triángulos)
                             const _PerforatedEdge(),
                             const SizedBox(height: 16),
@@ -1361,7 +1403,11 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
             ),
 
             const SizedBox(height: 24),
-          ],
+                  ],
+                ),
+              ),
+            );
+          },
         ),
       ),
     );

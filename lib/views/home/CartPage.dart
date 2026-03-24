@@ -365,6 +365,23 @@ class _CartPageState extends State<CartPage> {
   }
 
   void _increaseQuantity(int index) {
+    final item = pedidos[index];
+
+    // Si este ítem es el que usa el canje, limitamos la cantidad a 1
+    if (item['isPromoItem'] == true) {
+      final int currentQty = _asInt(item['quantity'] ?? 1);
+      if (currentQty >= 1) {
+        _showPremiumModal(
+          title: 'Canje aplicado',
+          message:
+              'Este beneficio solo aplica a 1 producto. Si deseas más unidades, agrégalas como otro producto sin canje.',
+          icon: Icons.local_offer_rounded,
+          accent: const Color(0xFF1B6F81),
+        );
+        return;
+      }
+    }
+
     setState(
       () => pedidos[index]['quantity'] = _asInt(pedidos[index]['quantity']) + 1,
     );

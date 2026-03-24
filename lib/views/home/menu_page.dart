@@ -318,6 +318,10 @@ class _MenuPageState extends State<MenuPage>
   List<Map<String, dynamic>> pedidos = [];
   bool _suppressNextReload = false;
 
+  // Indica si ya se usó el canje/descuento en algún producto del carrito
+  bool get _canjeYaUsado =>
+      pedidos.any((p) => p['isPromoItem'] == true);
+
   List<Category> _categories = [];
   bool _isLoadingProducts = false;
   String? _productsError;
@@ -700,6 +704,25 @@ class _MenuPageState extends State<MenuPage>
     required BuildContext context,
     required Product product,
   }) async {
+    // Si esta pantalla viene de un canje/oferta y ya se usó
+    // en un producto, no permitimos agregar más desde aquí.
+    if (widget.descuento > 0 && _canjeYaUsado) {
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: true,
+          builder: (_) => const _PremiumFeedbackModal(
+            message:
+                'Ya usaste tu canje en un producto. Esta oferta solo aplica a un producto por pedido.',
+          ),
+        );
+      }
+      return;
+    }
+
+    // Solo el primer producto puede aprovechar el canje/descuento
+    final bool canUseCanje = widget.descuento > 0 && !_canjeYaUsado;
+
     _suppressNextReload = true;
     dynamic rawPedido;
 
@@ -707,8 +730,10 @@ class _MenuPageState extends State<MenuPage>
       rawPedido = await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) =>
-              ProductDetailPage(product: product, descuento: widget.descuento),
+          builder: (context) => ProductDetailPage(
+            product: product,
+            descuento: canUseCanje ? widget.descuento : 0.0,
+          ),
         ),
       );
     } finally {
@@ -719,6 +744,11 @@ class _MenuPageState extends State<MenuPage>
       final Map<String, dynamic> pedido = Map<String, dynamic>.from(
         rawPedido as Map,
       );
+
+      // Marcamos qué producto usó el canje para limitarlo a uno solo
+      if (canUseCanje && widget.descuento > 0) {
+        pedido['isPromoItem'] = true;
+      }
 
       setState(() => pedidos.add(pedido));
       await _guardarPedidos();
@@ -1246,10 +1276,16 @@ class _MenuPageState extends State<MenuPage>
             itemBuilder: (context, index) {
               final product = products[index];
               final precioOriginal = product.price;
-              final precioFinal = precioOriginal * (1 - widget.descuento);
+              final bool canUseCanje =
+                widget.descuento > 0 && !_canjeYaUsado;
+              final double efectivoDescuento =
+                canUseCanje ? widget.descuento : 0.0;
+              final double precioFinal = canUseCanje
+                ? precioOriginal * (1 - widget.descuento)
+                : precioOriginal;
               return _PremiumProductGridTile(
                 product: product,
-                descuento: widget.descuento,
+              descuento: efectivoDescuento,
                 precioOriginal: precioOriginal,
                 precioFinal: precioFinal,
                 onAdd: () =>
@@ -2772,6 +2808,10 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
   late List<Map<String, dynamic>> _pedidos;
   String _q = '';
 
+  // Indica si ya se usó el canje/descuento en algún producto del carrito local
+  bool get _canjeYaUsado =>
+      _pedidos.any((p) => p['isPromoItem'] == true);
+
   @override
   void initState() {
     super.initState();
@@ -2828,11 +2868,32 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
   }
 
   Future<void> _openDetailAndAdd(Product product) async {
+    // Si esta pantalla viene de un canje/oferta y ya se usó
+    // en un producto, no permitimos agregar más desde aquí.
+    if (widget.descuento > 0 && !_canjeYaUsado == false) {
+      // !_canjeYaUsado == false  =>  _canjeYaUsado == true
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: true,
+          builder: (_) => const _PremiumFeedbackModal(
+            message:
+                'Ya usaste tu canje en un producto. Esta oferta solo aplica a un producto por pedido.',
+          ),
+        );
+      }
+      return;
+    }
+
+    final bool canUseCanje = widget.descuento > 0 && !_canjeYaUsado;
+
     final rawPedido = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            ProductDetailPage(product: product, descuento: widget.descuento),
+        builder: (_) => ProductDetailPage(
+          product: product,
+          descuento: canUseCanje ? widget.descuento : 0.0,
+        ),
       ),
     );
 
@@ -2840,6 +2901,10 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
 
     if (rawPedido != null) {
       final pedido = Map<String, dynamic>.from(rawPedido as Map);
+
+      if (canUseCanje && widget.descuento > 0) {
+        pedido['isPromoItem'] = true;
+      }
 
       setState(() => _pedidos.add(pedido));
 
@@ -3020,12 +3085,17 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
                         itemBuilder: (context, index) {
                           final product = products[index];
                           final precioOriginal = product.price;
-                          final precioFinal =
-                              precioOriginal * (1 - widget.descuento);
+                          final bool canUseCanje =
+                            widget.descuento > 0 && !_canjeYaUsado;
+                          final double efectivoDescuento =
+                            canUseCanje ? widget.descuento : 0.0;
+                          final double precioFinal = canUseCanje
+                            ? precioOriginal * (1 - widget.descuento)
+                            : precioOriginal;
 
                           return _PremiumProductGridTile(
                             product: product,
-                            descuento: widget.descuento,
+                          descuento: efectivoDescuento,
                             precioOriginal: precioOriginal,
                             precioFinal: precioFinal,
                             onAdd: () => _openDetailAndAdd(product),
