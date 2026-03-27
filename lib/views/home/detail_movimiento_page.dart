@@ -1262,20 +1262,7 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                               alignment: Alignment.center,
                               child: Column(
                                 children: [
-                                  const Text(
-                                    'Código',
-                                    style: TextStyle(fontSize: 12, color: Colors.black54),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    codigo.isNotEmpty ? codigo : '-',
-                                    style: const TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 4,
-                                      color: Color(0xFF42A5F5),
-                                    ),
-                                  ),
+
                                 ],
                               ),
                             ),

@@ -7,6 +7,8 @@ import 'package:bubblesplash/constants/backend_config.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
+import 'dart:typed_data';
+
 class CartPage extends StatefulWidget {
   final List<Map<String, dynamic>> initialPedidos;
   final double descuento;
@@ -856,11 +858,68 @@ class _CartPageState extends State<CartPage> {
       if (toppingsText.isNotEmpty) toppingsText,
     ];
 
-    final String? imagePath =
-        item['image'] ?? item['imagePath'] ?? item['imageUrl'];
-    final bool isNetworkImage =
-        imagePath != null &&
+    final String? imagePath = item['image'] ?? item['imagePath'] ?? item['imageUrl'];
+    final bool isNetworkImage = imagePath != null &&
         (imagePath.startsWith('http') || imagePath.startsWith('https'));
+
+    // Detectar si es base64 (simple: cadena larga, sin http, y parece base64)
+    bool isBase64Image = false;
+    Uint8List? base64Bytes;
+    if (imagePath != null && !isNetworkImage) {
+      final base64RegExp = RegExp(r'^[A-Za-z0-9+/=\s]+$');
+      // Opcional: quitar prefijo data:image/png;base64,
+      String base64Str = imagePath;
+      if (base64Str.startsWith('data:image')) {
+        final idx = base64Str.indexOf('base64,');
+        if (idx != -1) base64Str = base64Str.substring(idx + 7);
+      }
+      if (base64Str.length > 100 && base64RegExp.hasMatch(base64Str)) {
+        try {
+          base64Bytes = base64Decode(base64Str);
+          isBase64Image = true;
+        } catch (_) {
+          isBase64Image = false;
+        }
+      }
+    }
+
+    debugPrint('CartPage _buildCartItem: imagePath=$imagePath, isNetworkImage=$isNetworkImage, isBase64Image=$isBase64Image, item=$item');
+
+    Widget imageWidget;
+    if (isNetworkImage) {
+      imageWidget = Image.network(
+        imagePath!,
+        height: 85,
+        width: 85,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => Image.asset(
+          'assets/bebidas.png',
+          height: 85,
+          width: 85,
+          fit: BoxFit.cover,
+        ),
+      );
+    } else if (isBase64Image && base64Bytes != null) {
+      imageWidget = Image.memory(
+        base64Bytes,
+        height: 85,
+        width: 85,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => Image.asset(
+          'assets/bebidas.png',
+          height: 85,
+          width: 85,
+          fit: BoxFit.cover,
+        ),
+      );
+    } else {
+      imageWidget = Image.asset(
+        'assets/bebidas.png',
+        height: 85,
+        width: 85,
+        fit: BoxFit.cover,
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -869,38 +928,7 @@ class _CartPageState extends State<CartPage> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: imagePath != null
-                ? (isNetworkImage
-                      ? Image.network(
-                          imagePath,
-                          height: 85,
-                          width: 85,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Image.asset(
-                            'assets/bebidas.png',
-                            height: 85,
-                            width: 85,
-                            fit: BoxFit.cover,
-                          ),
-                        )
-                      : Image.asset(
-                          imagePath,
-                          height: 85,
-                          width: 85,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Image.asset(
-                            'assets/bebidas.png',
-                            height: 85,
-                            width: 85,
-                            fit: BoxFit.cover,
-                          ),
-                        ))
-                : Image.asset(
-                    'assets/bebidas.png',
-                    height: 85,
-                    width: 85,
-                    fit: BoxFit.cover,
-                  ),
+            child: imageWidget,
           ),
           const SizedBox(width: 10),
           Expanded(

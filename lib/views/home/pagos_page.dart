@@ -1959,45 +1959,7 @@ class MovimientoItemPremium extends StatelessWidget {
                           );
                         },
                       ),
-                      ListTile(
-                        leading: const Icon(Icons.download_rounded),
-                        title: const Text('Descargar comprobante'),
-                        onTap: () async {
-                          Navigator.pop(ctx);
-                          // Buscar el comprobante PDF por ID
-                          try {
-                            final dir = await getApplicationDocumentsDirectory();
-                            final rawId = (movimientoRaw['referencia'] ?? '').toString();
-                            final idConMov = rawId.startsWith('MOV') ? rawId : 'MOV$rawId';
-
-                            final candidates = <File>[
-                              File("${dir.path}/comprobante_recarga_$idConMov.pdf"),
-                              File("${dir.path}/comprobante_recarga_$rawId.pdf"),
-                              File("${dir.path}/comprobante_recarga.pdf"),
-                            ];
-
-                            File? found;
-                            for (final f in candidates) {
-                              if (await f.exists()) {
-                                found = f;
-                                break;
-                              }
-                            }
-
-                            if (found != null) {
-                              await OpenFile.open(found.path);
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('No se encontró el comprobante PDF.')),
-                              );
-                            }
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error al abrir comprobante: $e')),
-                            );
-                          }
-                        },
-                      ),
+                
                     ],
                   ),
                 ),

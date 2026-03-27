@@ -14,6 +14,7 @@ import '../../constants/api_constants.dart';
 import 'package:bubblesplash/models/category.dart';
 import 'package:bubblesplash/models/product.dart';
 import 'package:bubblesplash/models/topping.dart';
+
 // =========================
 // Splash Bubble Premium UI (diseño premium glass)
 // =========================
@@ -71,7 +72,8 @@ class SB {
   ];
 
   // Efecto glassmorphism
-  static BoxDecoration glassBox({BorderRadiusGeometry? radius}) => BoxDecoration(
+  static BoxDecoration glassBox({BorderRadiusGeometry? radius}) =>
+      BoxDecoration(
         gradient: gradGlass,
         color: glass,
         borderRadius: radius ?? BorderRadius.circular(20),
@@ -106,13 +108,15 @@ class PremiumCard extends StatelessWidget {
       curve: Curves.easeOutCubic,
       padding: padding,
       decoration: glass
-          ? SB.glassBox(radius: radius).copyWith(
-              boxShadow: shadow ? SB.shadowSoft : [],
-              border: Border.all(
-                color: borderGlow ? SB.mint.withOpacity(0.45) : SB.stroke,
-                width: borderGlow ? 2.2 : 1.2,
-              ),
-            )
+          ? SB
+                .glassBox(radius: radius)
+                .copyWith(
+                  boxShadow: shadow ? SB.shadowSoft : [],
+                  border: Border.all(
+                    color: borderGlow ? SB.mint.withOpacity(0.45) : SB.stroke,
+                    width: borderGlow ? 2.2 : 1.2,
+                  ),
+                )
           : BoxDecoration(
               color: SB.card,
               borderRadius: radius,
@@ -167,7 +171,6 @@ class PremiumPill {
     );
   }
 }
-
 
 bool isBase64(String str) {
   final base64RegExp = RegExp(r'^[A-Za-z0-9+/=\r\n]+={0,2}\u0000*\u0000*$');
@@ -319,8 +322,7 @@ class _MenuPageState extends State<MenuPage>
   bool _suppressNextReload = false;
 
   // Indica si ya se usó el canje/descuento en algún producto del carrito
-  bool get _canjeYaUsado =>
-      pedidos.any((p) => p['isPromoItem'] == true);
+  bool get _canjeYaUsado => pedidos.any((p) => p['isPromoItem'] == true);
 
   List<Category> _categories = [];
   bool _isLoadingProducts = false;
@@ -408,7 +410,22 @@ class _MenuPageState extends State<MenuPage>
 
   Future<void> _guardarPedidos() async {
     final prefs = await SharedPreferences.getInstance();
-    final data = pedidos.map((p) => jsonEncode(p)).toList();
+    final data = pedidos.map((p) {
+      final image = p['image'] ?? '';
+      String normalizedImage = image;
+      if (image is String &&
+          image.isNotEmpty &&
+          !image.startsWith('http') &&
+          !image.startsWith('data:image') &&
+          !image.endsWith('.svg')) {
+        // Si es solo un nombre de archivo, lo convertimos a URL del backend
+        normalizedImage =
+            '${BackendConfig.baseUrl}bubblesplash/productos/img/$image';
+      }
+      final pCopy = Map<String, dynamic>.from(p);
+      pCopy['image'] = normalizedImage;
+      return jsonEncode(pCopy);
+    }).toList();
     await prefs.setStringList('cart_pedidos', data);
   }
 
@@ -1276,16 +1293,16 @@ class _MenuPageState extends State<MenuPage>
             itemBuilder: (context, index) {
               final product = products[index];
               final precioOriginal = product.price;
-              final bool canUseCanje =
-                widget.descuento > 0 && !_canjeYaUsado;
-              final double efectivoDescuento =
-                canUseCanje ? widget.descuento : 0.0;
+              final bool canUseCanje = widget.descuento > 0 && !_canjeYaUsado;
+              final double efectivoDescuento = canUseCanje
+                  ? widget.descuento
+                  : 0.0;
               final double precioFinal = canUseCanje
-                ? precioOriginal * (1 - widget.descuento)
-                : precioOriginal;
+                  ? precioOriginal * (1 - widget.descuento)
+                  : precioOriginal;
               return _PremiumProductGridTile(
                 product: product,
-              descuento: efectivoDescuento,
+                descuento: efectivoDescuento,
                 precioOriginal: precioOriginal,
                 precioFinal: precioFinal,
                 onAdd: () =>
@@ -1328,10 +1345,7 @@ class _PremiumProductGridTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(15),
         onTap: onAdd,
         child: Container(
-          constraints: const BoxConstraints(
-            minHeight: 120,
-            maxHeight: 155,
-          ),
+          constraints: const BoxConstraints(minHeight: 120, maxHeight: 155),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(15),
             boxShadow: const [
@@ -1611,7 +1625,11 @@ class _SelectableTopping {
     this.quantity = 0,
   });
 
-  _SelectableTopping copyWith({Topping? topping, bool? selected, int? quantity}) {
+  _SelectableTopping copyWith({
+    Topping? topping,
+    bool? selected,
+    int? quantity,
+  }) {
     return _SelectableTopping(
       topping: topping ?? this.topping,
       selected: selected ?? this.selected,
@@ -1672,11 +1690,19 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
     final unitTotal = basePrice + sizeExtra + iceExtra + toppingsTotal;
 
+    // Normalizar imagen para que siempre sea URL del backend si corresponde
+    String img = widget.product.image;
+    if (img.isNotEmpty &&
+        !img.startsWith('http') &&
+        !img.startsWith('data:image') &&
+        !img.endsWith('.svg')) {
+      img = '${BackendConfig.baseUrl}bubblesplash/productos/img/$img';
+    }
     final pedido = {
       'id': widget.product.id,
       'name': widget.product.name,
       'desc': widget.product.description,
-      'image': widget.product.image,
+      'image': img,
       'price': unitTotal,
       'basePrice': basePrice,
       'sizeExtra': sizeExtra,
@@ -1758,7 +1784,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       }
 
       final token = rawToken.trim();
-      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/productos/$id/');
+      final uri = Uri.parse(
+        ApiConstants.baseUrl + '/bubblesplash/productos/$id/',
+      );
 
       http.Response response = await http.get(
         uri,
@@ -1866,7 +1894,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         return;
       }
 
-      final List<dynamic> dataMap = jsonDecode(responseMap.body) as List<dynamic>;
+      final List<dynamic> dataMap =
+          jsonDecode(responseMap.body) as List<dynamic>;
       final Set<int> allowedToppingIds = <int>{};
 
       for (final item in dataMap.whereType<Map<String, dynamic>>()) {
@@ -1987,7 +2016,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       }
 
       final token = rawToken.trim();
-      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/productos-sizes/');
+      final uri = Uri.parse(
+        ApiConstants.baseUrl + '/bubblesplash/productos-sizes/',
+      );
 
       http.Response response = await http.get(
         uri,
@@ -2075,8 +2106,10 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     if (nextQty > 2) nextQty = 2;
 
     // Cantidad total actual de unidades de toppings
-    final currentTotalUnits =
-        toppings.fold<int>(0, (sum, t) => sum + t.quantity);
+    final currentTotalUnits = toppings.fold<int>(
+      0,
+      (sum, t) => sum + t.quantity,
+    );
 
     final newTotalUnits = currentTotalUnits - currentQty + nextQty;
 
@@ -2102,9 +2135,6 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     });
   }
 
-
-
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -2117,11 +2147,13 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           // Fondo glassmorphism premium
           Positioned.fill(
             child: Container(
-              decoration: SB.glassBox(radius: BorderRadius.zero).copyWith(
-                gradient: SB.gradBrand,
-                color: SB.bg.withOpacity(0.98),
-                boxShadow: [],
-              ),
+              decoration: SB
+                  .glassBox(radius: BorderRadius.zero)
+                  .copyWith(
+                    gradient: SB.gradBrand,
+                    color: SB.bg.withOpacity(0.98),
+                    boxShadow: [],
+                  ),
             ),
           ),
           // Overlay de luz suave para más profundidad
@@ -2162,7 +2194,10 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+                    icon: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      color: Colors.white,
+                    ),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ),
@@ -2236,10 +2271,13 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                               children: [
                                 if (widget.descuento > 0)
                                   _DiscountPill(
-                                    text: '-${(widget.descuento * 100).toInt()}%',
+                                    text:
+                                        '-${(widget.descuento * 100).toInt()}%',
                                   ),
                                 if (_isLoadingDetail)
-                                  const _StatusPill(text: 'Actualizando precio...'),
+                                  const _StatusPill(
+                                    text: 'Actualizando precio...',
+                                  ),
                                 if (_detailError != null)
                                   _StatusPill(
                                     text: 'Error de detalle',
@@ -2275,34 +2313,59 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                     padding: const EdgeInsets.fromLTRB(16, 20, 16, 130),
                     child: Column(
                       children: [
-                      if (_detailError != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: PremiumCard(
-                            glass: true,
-                            shadow: false,
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.error_outline_rounded,
-                                  color: Colors.redAccent,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    _detailError!,
-                                    style: const TextStyle(
-                                      color: Colors.redAccent,
-                                      fontWeight: FontWeight.w700,
+                        if (_detailError != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: PremiumCard(
+                              glass: true,
+                              shadow: false,
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.error_outline_rounded,
+                                    color: Colors.redAccent,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      _detailError!,
+                                      style: const TextStyle(
+                                        color: Colors.redAccent,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
-                        ),
 
-                      if (widget.product.description.trim().isNotEmpty)
+                        if (widget.product.description.trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: PremiumCard(
+                              glass: true,
+                              shadow: false,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const _SectionTitle(title: 'Descripción'),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    widget.product.description,
+                                    style: const TextStyle(
+                                      fontSize: 15.5,
+                                      height: 1.35,
+                                      fontWeight: FontWeight.w500,
+                                      color: SB.text,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                        // Tamaño de vaso
                         Padding(
                           padding: const EdgeInsets.only(bottom: 16),
                           child: PremiumCard(
@@ -2311,15 +2374,138 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const _SectionTitle(title: 'Descripción'),
+                                const _SectionTitle(title: 'Tamaño de vaso'),
                                 const SizedBox(height: 8),
-                                Text(
-                                  widget.product.description,
-                                  style: const TextStyle(
-                                    fontSize: 15.5,
-                                    height: 1.35,
-                                    fontWeight: FontWeight.w500,
-                                    color: SB.text,
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children:
+                                        (_sizePrices.keys.isNotEmpty
+                                                ? _sizePrices.keys.toList()
+                                                : ['Normal'])
+                                            .map((size) {
+                                              final selected =
+                                                  selectedSize == size;
+                                              final extra =
+                                                  _sizePrices[size] ?? 0.0;
+                                              String priceLabel;
+                                              if (extra == 0.0) {
+                                                priceLabel = 'Sin recargo';
+                                              } else if (extra > 0.0) {
+                                                priceLabel =
+                                                    '+S/. ${extra.toStringAsFixed(2)}';
+                                              } else {
+                                                priceLabel =
+                                                    '-S/. ${(-extra).toStringAsFixed(2)}';
+                                              }
+
+                                              return Padding(
+                                                padding: const EdgeInsets.only(
+                                                  right: 10,
+                                                ),
+                                                child: GestureDetector(
+                                                  onTap: () {
+                                                    setState(() {
+                                                      selectedSize = size;
+                                                      totalPrice =
+                                                          _calcularTotal();
+                                                    });
+                                                  },
+                                                  child: AnimatedContainer(
+                                                    duration: const Duration(
+                                                      milliseconds: 220,
+                                                    ),
+                                                    curve: Curves.easeOutCubic,
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 14,
+                                                          vertical: 10,
+                                                        ),
+                                                    decoration:
+                                                        PremiumPill.decoration(
+                                                          selected: selected,
+                                                          glow: selected,
+                                                        ),
+                                                    child: Row(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        Container(
+                                                          padding:
+                                                              const EdgeInsets.all(
+                                                                6,
+                                                              ),
+                                                          decoration: BoxDecoration(
+                                                            shape:
+                                                                BoxShape.circle,
+                                                            color: selected
+                                                                ? Colors.white
+                                                                      .withOpacity(
+                                                                        0.18,
+                                                                      )
+                                                                : SB.bg,
+                                                          ),
+                                                          child: Icon(
+                                                            Icons
+                                                                .local_drink_rounded,
+                                                            size: 18,
+                                                            color: selected
+                                                                ? Colors.white
+                                                                : SB.teal,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                          width: 10,
+                                                        ),
+                                                        Column(
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .start,
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
+                                                          children: [
+                                                            Text(
+                                                              size,
+                                                              style: TextStyle(
+                                                                color: selected
+                                                                    ? Colors
+                                                                          .white
+                                                                    : SB.text,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w900,
+                                                                fontSize: 14,
+                                                              ),
+                                                            ),
+                                                            const SizedBox(
+                                                              height: 2,
+                                                            ),
+                                                            Text(
+                                                              priceLabel,
+                                                              style: theme
+                                                                  .textTheme
+                                                                  .labelSmall
+                                                                  ?.copyWith(
+                                                                    color:
+                                                                        selected
+                                                                        ? Colors.white.withOpacity(
+                                                                            0.9,
+                                                                          )
+                                                                        : SB.sub,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w600,
+                                                                  ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                              );
+                                            })
+                                            .toList(),
                                   ),
                                 ),
                               ],
@@ -2327,182 +2513,96 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                           ),
                         ),
 
-                      // Tamaño de vaso
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: PremiumCard(
-                          glass: true,
-                          shadow: false,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const _SectionTitle(title: 'Tamaño de vaso'),
-                              const SizedBox(height: 8),
-                              SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: Row(
-                                  children: (_sizePrices.keys.isNotEmpty
-                                          ? _sizePrices.keys.toList()
-                                          : ['Normal'])
-                                      .map((size) {
-                                    final selected = selectedSize == size;
-                                    final extra = _sizePrices[size] ?? 0.0;
-                                    String priceLabel;
-                                    if (extra == 0.0) {
-                                      priceLabel = 'Sin recargo';
-                                    } else if (extra > 0.0) {
-                                      priceLabel = '+S/. ${extra.toStringAsFixed(2)}';
-                                    } else {
-                                      priceLabel = '-S/. ${(-extra).toStringAsFixed(2)}';
-                                    }
-
-                                    return Padding(
-                                      padding: const EdgeInsets.only(right: 10),
-                                      child: GestureDetector(
-                                        onTap: () {
-                                          setState(() {
-                                            selectedSize = size;
-                                            totalPrice = _calcularTotal();
-                                          });
-                                        },
-                                        child: AnimatedContainer(
-                                          duration: const Duration(milliseconds: 220),
-                                          curve: Curves.easeOutCubic,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
-                                            vertical: 10,
+                        // Toppings (ocultos)
+                        Visibility(
+                          visible: false,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: PremiumCard(
+                              glass: true,
+                              shadow: false,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const _SectionTitle(
+                                    title: 'Toppings (máx. 3)',
+                                  ),
+                                  const SizedBox(height: 8),
+                                  toppings.isEmpty
+                                      ? const Text(
+                                          'No hay toppings disponibles.',
+                                          style: TextStyle(
+                                            color: Colors.black54,
+                                            fontWeight: FontWeight.w600,
                                           ),
-                                          decoration: PremiumPill.decoration(
-                                            selected: selected,
-                                            glow: selected,
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Container(
-                                                padding: const EdgeInsets.all(6),
-                                                decoration: BoxDecoration(
-                                                  shape: BoxShape.circle,
-                                                  color: selected
-                                                      ? Colors.white.withOpacity(0.18)
-                                                      : SB.bg,
-                                                ),
-                                                child: Icon(
-                                                  Icons.local_drink_rounded,
-                                                  size: 18,
-                                                  color: selected ? Colors.white : SB.teal,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 10),
-                                              Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Text(
-                                                    size,
-                                                    style: TextStyle(
-                                                      color: selected ? Colors.white : SB.text,
-                                                      fontWeight: FontWeight.w900,
-                                                      fontSize: 14,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 2),
-                                                  Text(
-                                                    priceLabel,
-                                                    style: theme.textTheme.labelSmall?.copyWith(
-                                                      color: selected
-                                                          ? Colors.white.withOpacity(0.9)
-                                                          : SB.sub,
-                                                      fontWeight: FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      // Toppings (ocultos)
-                      Visibility(
-                        visible: false,
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: PremiumCard(
-                            glass: true,
-                            shadow: false,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const _SectionTitle(
-                                  title: 'Toppings (máx. 3)',
-                                ),
-                                const SizedBox(height: 8),
-                                toppings.isEmpty
-                                    ? const Text(
-                                        'No hay toppings disponibles.',
-                                        style: TextStyle(
-                                          color: Colors.black54,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      )
-                                    : Wrap(
-                                        spacing: 10,
-                                        runSpacing: 10,
-                                        children: List.generate(
-                                          toppings.length,
-                                          (index) {
+                                        )
+                                      : Wrap(
+                                          spacing: 10,
+                                          runSpacing: 10,
+                                          children: List.generate(toppings.length, (
+                                            index,
+                                          ) {
                                             final t = toppings[index];
                                             final selected = t.quantity > 0;
-                                            final priceLabel = '+S/. ${t.topping.price.toStringAsFixed(2)}';
+                                            final priceLabel =
+                                                '+S/. ${t.topping.price.toStringAsFixed(2)}';
 
                                             return AnimatedContainer(
                                               duration: const Duration(
                                                 milliseconds: 220,
                                               ),
                                               curve: Curves.easeOutCubic,
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 9,
-                                              ),
-                                              decoration: PremiumPill.decoration(
-                                                selected: selected,
-                                                glow: selected,
-                                              ),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 9,
+                                                  ),
+                                              decoration:
+                                                  PremiumPill.decoration(
+                                                    selected: selected,
+                                                    glow: selected,
+                                                  ),
                                               child: Row(
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
                                                   // Botón disminuir
                                                   GestureDetector(
-                                                    onTap: () => _changeToppingQuantity(index, -1),
+                                                    onTap: () =>
+                                                        _changeToppingQuantity(
+                                                          index,
+                                                          -1,
+                                                        ),
                                                     child: Container(
-                                                      padding: const EdgeInsets.all(4),
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                            4,
+                                                          ),
                                                       decoration: BoxDecoration(
                                                         shape: BoxShape.circle,
                                                         color: selected
-                                                            ? Colors.white.withOpacity(0.18)
+                                                            ? Colors.white
+                                                                  .withOpacity(
+                                                                    0.18,
+                                                                  )
                                                             : SB.bg,
                                                       ),
                                                       child: Icon(
                                                         Icons.remove,
                                                         size: 18,
-                                                        color: selected ? Colors.white : SB.teal,
+                                                        color: selected
+                                                            ? Colors.white
+                                                            : SB.teal,
                                                       ),
                                                     ),
                                                   ),
                                                   const SizedBox(width: 8),
                                                   // Info topping
                                                   Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                                    mainAxisSize: MainAxisSize.min,
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
                                                     children: [
                                                       Text(
                                                         t.topping.name,
@@ -2510,7 +2610,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                                                           color: selected
                                                               ? Colors.white
                                                               : SB.text,
-                                                          fontWeight: FontWeight.w800,
+                                                          fontWeight:
+                                                              FontWeight.w800,
                                                           fontSize: 13,
                                                         ),
                                                       ),
@@ -2519,104 +2620,128 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                                                         t.quantity > 0
                                                             ? '$priceLabel · x${t.quantity}'
                                                             : priceLabel,
-                                                        style: theme.textTheme.labelSmall?.copyWith(
-                                                          color: selected
-                                                              ? Colors.white.withOpacity(0.9)
-                                                              : SB.sub,
-                                                          fontWeight: FontWeight.w600,
-                                                        ),
+                                                        style: theme
+                                                            .textTheme
+                                                            .labelSmall
+                                                            ?.copyWith(
+                                                              color: selected
+                                                                  ? Colors.white
+                                                                        .withOpacity(
+                                                                          0.9,
+                                                                        )
+                                                                  : SB.sub,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                            ),
                                                       ),
                                                     ],
                                                   ),
                                                   const SizedBox(width: 8),
                                                   // Botón aumentar
                                                   GestureDetector(
-                                                    onTap: () => _changeToppingQuantity(index, 1),
+                                                    onTap: () =>
+                                                        _changeToppingQuantity(
+                                                          index,
+                                                          1,
+                                                        ),
                                                     child: Container(
-                                                      padding: const EdgeInsets.all(4),
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                            4,
+                                                          ),
                                                       decoration: BoxDecoration(
                                                         shape: BoxShape.circle,
                                                         color: selected
-                                                            ? Colors.white.withOpacity(0.18)
+                                                            ? Colors.white
+                                                                  .withOpacity(
+                                                                    0.18,
+                                                                  )
                                                             : SB.bg,
                                                       ),
                                                       child: Icon(
                                                         Icons.add,
                                                         size: 18,
-                                                        color: selected ? Colors.white : SB.teal,
+                                                        color: selected
+                                                            ? Colors.white
+                                                            : SB.teal,
                                                       ),
                                                     ),
                                                   ),
                                                 ],
                                               ),
                                             );
-                                          },
+                                          }),
                                         ),
-                                      ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Tip: Puedes tocar toppings para seleccionar (máx. 3).',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: Colors.black54,
-                                    fontWeight: FontWeight.w600,
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Tip: Puedes tocar toppings para seleccionar (máx. 3).',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: Colors.black54,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
 
-                      // Nivel de hielo
-                      PremiumCard(
-                        glass: true,
-                        shadow: false,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const _SectionTitle(title: 'Nivel de hielo'),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
-                              children: ['Normal', 'Extra hielo', 'Poco hielo']
-                                  .map((ice) {
-                                final selected = selectedIce == ice;
-                                return AnimatedContainer(
-                                  duration:
-                                      const Duration(milliseconds: 200),
-                                  curve: Curves.easeOutCubic,
-                                  child: ChoiceChip(
-                                    label: Text(_labelIce(ice)),
-                                    selected: selected,
-                                    onSelected: (v) {
-                                      if (!v) return;
-                                      setState(() {
-                                        selectedIce = ice;
-                                        totalPrice = _calcularTotal();
-                                      });
-                                    },
-                                    selectedColor: SB.teal,
-                                    backgroundColor: SB.card,
-                                    labelStyle: TextStyle(
-                                      color: selected
-                                          ? Colors.white
-                                          : SB.text,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                    shape: PremiumPill.shape(
-                                      selected: selected,
-                                      glow: selected,
-                                    ) as OutlinedBorder,
-                                    elevation: 0,
-                                    pressElevation: 0,
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ],
+                        // Nivel de hielo
+                        PremiumCard(
+                          glass: true,
+                          shadow: false,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const _SectionTitle(title: 'Nivel de hielo'),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 10,
+                                children:
+                                    ['Normal', 'Extra hielo', 'Poco hielo'].map(
+                                      (ice) {
+                                        final selected = selectedIce == ice;
+                                        return AnimatedContainer(
+                                          duration: const Duration(
+                                            milliseconds: 200,
+                                          ),
+                                          curve: Curves.easeOutCubic,
+                                          child: ChoiceChip(
+                                            label: Text(_labelIce(ice)),
+                                            selected: selected,
+                                            onSelected: (v) {
+                                              if (!v) return;
+                                              setState(() {
+                                                selectedIce = ice;
+                                                totalPrice = _calcularTotal();
+                                              });
+                                            },
+                                            selectedColor: SB.teal,
+                                            backgroundColor: SB.card,
+                                            labelStyle: TextStyle(
+                                              color: selected
+                                                  ? Colors.white
+                                                  : SB.text,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                            shape:
+                                                PremiumPill.shape(
+                                                      selected: selected,
+                                                      glow: selected,
+                                                    )
+                                                    as OutlinedBorder,
+                                            elevation: 0,
+                                            pressElevation: 0,
+                                          ),
+                                        );
+                                      },
+                                    ).toList(),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
                       ],
                     ),
                   ),
@@ -2636,7 +2761,10 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                 child: PremiumCard(
                   glass: false,
                   shadow: true,
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
@@ -2681,13 +2809,19 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                           icon: const Icon(Icons.add_shopping_cart_rounded),
                           label: const Text(
                             'Agregar',
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                            ),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: SB.teal,
                             foregroundColor: Colors.white,
                             elevation: 0,
-                            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 22,
+                              vertical: 14,
+                            ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
@@ -2706,11 +2840,6 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       ),
     );
   }
-
-
-
-
-
 
   String _labelSize(String size) {
     final extra = _sizePrices[size] ?? 0.0;
@@ -2809,8 +2938,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
   String _q = '';
 
   // Indica si ya se usó el canje/descuento en algún producto del carrito local
-  bool get _canjeYaUsado =>
-      _pedidos.any((p) => p['isPromoItem'] == true);
+  bool get _canjeYaUsado => _pedidos.any((p) => p['isPromoItem'] == true);
 
   @override
   void initState() {
@@ -3086,16 +3214,17 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
                           final product = products[index];
                           final precioOriginal = product.price;
                           final bool canUseCanje =
-                            widget.descuento > 0 && !_canjeYaUsado;
-                          final double efectivoDescuento =
-                            canUseCanje ? widget.descuento : 0.0;
+                              widget.descuento > 0 && !_canjeYaUsado;
+                          final double efectivoDescuento = canUseCanje
+                              ? widget.descuento
+                              : 0.0;
                           final double precioFinal = canUseCanje
-                            ? precioOriginal * (1 - widget.descuento)
-                            : precioOriginal;
+                              ? precioOriginal * (1 - widget.descuento)
+                              : precioOriginal;
 
                           return _PremiumProductGridTile(
                             product: product,
-                          descuento: efectivoDescuento,
+                            descuento: efectivoDescuento,
                             precioOriginal: precioOriginal,
                             precioFinal: precioFinal,
                             onAdd: () => _openDetailAndAdd(product),

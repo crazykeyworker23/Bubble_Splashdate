@@ -70,7 +70,7 @@ class _ReceiptPageState extends State<ReceiptPage> {
   String? _nombreCliente;
   final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
-  late final String _codigoCompra;
+  // Eliminado _codigoCompra
   bool _mediaStoreReady = false;
   bool _walletApplied = false;
 
@@ -146,8 +146,7 @@ class _ReceiptPageState extends State<ReceiptPage> {
       _nombreCliente = 'Cliente';
     }
 
-    // Código de compra distinto al número de pedido
-    _codigoCompra = 'CP-${Random().nextInt(900000) + 100000}';
+    // Eliminado código de compra
 
     _initNotifications();
 
@@ -178,7 +177,7 @@ class _ReceiptPageState extends State<ReceiptPage> {
       'referencia':
           'Pedido ${widget.orderId} (${widget.finalPedidos.length} productos)',
       'fecha': '${widget.date} ${widget.time}',
-      'codigo': _codigoCompra,
+      // 'codigo': _codigoCompra, // Eliminado
       // Datos adicionales para poder reconstruir la boleta en Movimientos
       'orderId': widget.orderId,
       'dineOption': widget.dineOption,
@@ -448,13 +447,6 @@ class _ReceiptPageState extends State<ReceiptPage> {
                 ),
               ),
               pw.SizedBox(height: 20),
-              pw.Text(
-                'Código de compra: $_codigoCompra',
-                style: pw.TextStyle(
-                  fontSize: 16,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
             ],
           );
         },
@@ -923,31 +915,6 @@ class _ReceiptPageState extends State<ReceiptPage> {
 
                       const SizedBox(height: 16),
 
-                      // 🔹 Código de compra
-                      Align(
-                        alignment: Alignment.center,
-                        child: Column(
-                          children: [
-                            const Text(
-                              'Código de compra',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.black54,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _codigoCompra,
-                              style: const TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 6,
-                                color: Color(0xFF42A5F5),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ],
                   ),
                 ),

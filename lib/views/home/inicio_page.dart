@@ -18,6 +18,179 @@ import 'package:bubblesplash/routes/app_routes.dart';
 
 import 'CartPage.dart';
 
+/// Carrusel horizontal con imágenes circulares (para Marcas Aliadas)
+class _HorizontalCarouselMarcasAliadas extends StatefulWidget {
+  const _HorizontalCarouselMarcasAliadas();
+
+  @override
+  State<_HorizontalCarouselMarcasAliadas> createState() => _HorizontalCarouselMarcasAliadasState();
+}
+
+class _HorizontalCarouselMarcasAliadasState extends State<_HorizontalCarouselMarcasAliadas> {
+  late final ScrollController _scrollController;
+  Timer? _timer;
+  bool _isUserScrolling = false;
+
+  static const List<Map<String, String>> _baseItems = [
+    {'asset': 'assets/fimo.png', 'label': 'Fimo'},
+    {'asset': 'assets/bubble.png', 'label': 'Splash Bubble'},
+    {'asset': 'assets/dateanddo.png', 'label': 'Date & Do'},
+    {'asset': 'assets/finhold.png', 'label': 'Finhold'},
+    {'asset': 'assets/fintbot.png', 'label': 'Fintbot'},
+    {'asset': 'assets/fintour.png', 'label': 'Fintour'},
+    {'asset': 'assets/alini.png', 'label': 'Alini'},
+    {'asset': 'assets/fintpay.png', 'label': 'Fintpay'},
+    {'asset': 'assets/loggia.png', 'label': 'Loggia'},
+    {'asset': 'assets/losthorde.png', 'label': 'Lost Horde'},
+    {'asset': 'assets/pasa.jpeg', 'label': 'Pasa'},
+    {'asset': 'assets/ttvfinared.png', 'label': 'TV Finared'},
+    {'asset': 'assets/xambio.png', 'label': 'Xambio'},
+  ];
+  late final List<Map<String, String>> _items;
+
+  @override
+  void initState() {
+    super.initState();
+    // Duplicar los ítems para simular infinito
+    _items = List.generate(100, (i) => _baseItems[i % _baseItems.length]);
+    _scrollController = ScrollController(initialScrollOffset: _baseItems.length * 80.0);
+    _startAutoScroll();
+  }
+
+  void _startAutoScroll() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      if (!mounted || _isUserScrolling) return;
+
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final minScroll = 0.0;
+      final currentScroll = _scrollController.position.pixels;
+      final middle = (_items.length / 2) * 80.0;
+
+      if (currentScroll >= maxScroll - 10) {
+        _scrollController.jumpTo(middle);
+      } else if (currentScroll <= minScroll + 10) {
+        _scrollController.jumpTo(middle);
+      } else {
+        _scrollController.animateTo(
+          currentScroll + 1,
+          duration: const Duration(milliseconds: 50),
+          curve: Curves.linear,
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification is ScrollStartNotification) {
+          _isUserScrolling = true;
+        } else if (notification is ScrollEndNotification) {
+          _isUserScrolling = false;
+          _startAutoScroll();
+        }
+        return false;
+      },
+      child: ListView.builder(
+        controller: _scrollController,
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: _items.length,
+        itemBuilder: (context, index) {
+          final item = _items[index];
+          return Padding(
+            padding: EdgeInsets.only(
+              left: index == 0 ? 16 : 8,
+              right: index == _items.length - 1 ? 16 : 8,
+            ),
+            child: _LocalCircularImage(
+              assetPath: item['asset']!,
+              label: item['label']!,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+/// Imagen circular local para Marcas Aliadas
+class _LocalCircularImage extends StatelessWidget {
+  final String assetPath;
+  final String label;
+  const _LocalCircularImage({
+    required this.assetPath,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 70,
+          height: 70,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x22000000),
+                blurRadius: 8,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ClipOval(
+                child: Image.asset(
+                  assetPath,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: Colors.transparent,
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.image_not_supported_outlined,
+                      color: Colors.black38,
+                      size: 36,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: 70,
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+              color: Color(0xFF111827),
+              height: 1.25,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// ✅ Cache manager más agresivo (mejor carga + menos re-descargas)
 final CacheManager kBannerCacheManager = CacheManager(
   Config(
@@ -335,10 +508,14 @@ class _InicioPageState extends State<InicioPage> {
           }
         }
       } else if (response.statusCode == 401) {
-        setState(() => _homeError = 'Sesión expirada. Inicia sesión nuevamente.');
+        setState(
+          () => _homeError = 'Sesión expirada. Inicia sesión nuevamente.',
+        );
       } else {
-        setState(() => _homeError =
-            'Error cargando home (${response.statusCode}). Intenta nuevamente.');
+        setState(
+          () => _homeError =
+              'Error cargando home (${response.statusCode}). Intenta nuevamente.',
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -383,10 +560,12 @@ class _InicioPageState extends State<InicioPage> {
               resolvedX = _fabOffset!.dx;
               resolvedY = _fabOffset!.dy;
             } else if (_fabXFrac != null && _fabYFrac != null) {
-              final double xRange =
-                  (maxX - minX).abs() < 0.001 ? 0 : (maxX - minX);
-              final double yRange =
-                  (maxY - minY).abs() < 0.001 ? 0 : (maxY - minY);
+              final double xRange = (maxX - minX).abs() < 0.001
+                  ? 0
+                  : (maxX - minX);
+              final double yRange = (maxY - minY).abs() < 0.001
+                  ? 0
+                  : (maxY - minY);
               resolvedX = minX + (_fabXFrac!.clamp(0.0, 1.0) * xRange);
               resolvedY = minY + (_fabYFrac!.clamp(0.0, 1.0) * yRange);
             } else {
@@ -463,7 +642,10 @@ class _InicioPageState extends State<InicioPage> {
                             child: Center(
                               child: Text(
                                 'No hay banners disponibles en este momento.',
-                                style: TextStyle(fontSize: 14, color: Colors.grey),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey,
+                                ),
                               ),
                             ),
                           ),
@@ -490,6 +672,24 @@ class _InicioPageState extends State<InicioPage> {
                           ),
                         ),
 
+                      // Duplicado: Otra sección similar a Novedades
+                      const SliverToBoxAdapter(child: SizedBox(height: 16)),
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                          child: _SectionHeader(
+                            title: "Marcas Aliadas",
+                            subtitle: "Empresas que confían",
+                          ),
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: SizedBox(
+                          height: 130,
+                          child: _HorizontalCarouselMarcasAliadas(),
+                        ),
+                      ),
+
                       const SliverToBoxAdapter(child: SizedBox(height: 16)),
 
                       SliverToBoxAdapter(
@@ -497,40 +697,15 @@ class _InicioPageState extends State<InicioPage> {
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                           child: _SectionHeader(
                             title: "Novedades",
-                            subtitle: "Lo último para ti",
+                            subtitle: "Lo nuevo para ti",
                           ),
                         ),
                       ),
 
                       SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: _banners.isEmpty
-                              ? const _EmptySoftCard(
-                                  text:
-                                      "Aún no hay novedades. Vuelve en unos minutos ✨",
-                                )
-                              : Column(
-                                  children: _banners.take(3).map((b) {
-                                    return Padding(
-                                      padding: const EdgeInsets.only(bottom: 12),
-                                      child: _PromoListTile(
-                                        banner: b,
-                                        onTap: () {
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) => _BannerFullScreenPage(
-                                                banners: _banners,
-                                                initialIndex: _banners.indexOf(b),
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
+                        child: SizedBox(
+                          height: 155,
+                          child: _HorizontalCarouselNovedades(),
                         ),
                       ),
 
@@ -563,10 +738,17 @@ class _InicioPageState extends State<InicioPage> {
                       if (startGlobal == null || startOffset == null) return;
 
                       final delta = details.globalPosition - startGlobal;
-                      if (!_didDragFab && delta.distance > 3) _didDragFab = true;
+                      if (!_didDragFab && delta.distance > 3)
+                        _didDragFab = true;
 
-                      final newX = (startOffset.dx + delta.dx).clamp(minX, maxX);
-                      final newY = (startOffset.dy + delta.dy).clamp(minY, maxY);
+                      final newX = (startOffset.dx + delta.dx).clamp(
+                        minX,
+                        maxX,
+                      );
+                      final newY = (startOffset.dy + delta.dy).clamp(
+                        minY,
+                        maxY,
+                      );
 
                       setState(() => _fabOffset = Offset(newX, newY));
                     },
@@ -969,10 +1151,7 @@ class _PremiumBannerCard extends StatelessWidget {
   final _HomeBanner banner;
   final VoidCallback onOpenGallery;
 
-  const _PremiumBannerCard({
-    required this.banner,
-    required this.onOpenGallery,
-  });
+  const _PremiumBannerCard({required this.banner, required this.onOpenGallery});
 
   @override
   Widget build(BuildContext context) {
@@ -1047,8 +1226,11 @@ class _PremiumBannerCard extends StatelessWidget {
                       const SizedBox(height: 10),
                       Row(
                         children: [
-                          Icon(Icons.open_in_full_rounded,
-                              size: 16, color: Colors.white.withOpacity(0.9)),
+                          Icon(
+                            Icons.open_in_full_rounded,
+                            size: 16,
+                            color: Colors.white.withOpacity(0.9),
+                          ),
                           const SizedBox(width: 6),
                           Text(
                             "Toca para ampliar",
@@ -1168,8 +1350,273 @@ class _PromoListTile extends StatelessWidget {
   }
 }
 
+/// ✅ Thumbnail circular pequeño para novedades
+class _CircularBannerThumbnail extends StatelessWidget {
+  final _HomeBanner banner;
+  final VoidCallback onTap;
+  const _CircularBannerThumbnail({required this.banner, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 90,
+            height: 90,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x22000000),
+                  blurRadius: 8,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipOval(
+                  child: _NetworkImagePremium(
+                    url: banner.imageUrl,
+                    small: true,
+                    showFull: false,
+                  ),
+                ),
+                ClipOval(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.black.withOpacity(0.05),
+                          Colors.black.withOpacity(0.30),
+                        ],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: 90,
+            child: Text(
+              banner.title.isNotEmpty ? banner.title : "Novedad",
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+                color: Color(0xFF111827),
+                height: 1.25,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// ✅ Carrusel horizontal con desplazamiento automático lento
+class _HorizontalCarouselNovedades extends StatefulWidget {
+  const _HorizontalCarouselNovedades();
+
+  @override
+  State<_HorizontalCarouselNovedades> createState() =>
+      _HorizontalCarouselNovedadesState();
+}
+
+class _HorizontalCarouselNovedadesState
+    extends State<_HorizontalCarouselNovedades> {
+  late final ScrollController _scrollController;
+  Timer? _timer;
+  bool _isUserScrolling = false;
+
+  static const List<Map<String, String>> _baseItems = [
+    {'asset': 'assets/fimos.png', 'label': 'Fimo'},
+    {'asset': 'assets/bubble.png', 'label': 'Splash Bubble'},
+
+  ];
+  late final List<Map<String, String>> _items;
+
+  @override
+  void initState() {
+    super.initState();
+    // Duplicar los ítems para simular infinito
+    _items = List.generate(100, (i) => _baseItems[i % _baseItems.length]);
+    _scrollController = ScrollController(initialScrollOffset: _baseItems.length * 110.0);
+    _startAutoScroll();
+  }
+
+  void _startAutoScroll() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      if (!mounted || _isUserScrolling) return;
+
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final minScroll = 0.0;
+      final currentScroll = _scrollController.position.pixels;
+      final middle = (_items.length / 2) * 110.0;
+
+      if (currentScroll >= maxScroll - 10) {
+        _scrollController.jumpTo(middle);
+      } else if (currentScroll <= minScroll + 10) {
+        _scrollController.jumpTo(middle);
+      } else {
+        _scrollController.animateTo(
+          currentScroll + 1,
+          duration: const Duration(milliseconds: 50),
+          curve: Curves.linear,
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification is ScrollStartNotification) {
+          _isUserScrolling = true;
+        } else if (notification is ScrollEndNotification) {
+          _isUserScrolling = false;
+          _startAutoScroll();
+        }
+        return false;
+      },
+      child: ListView.builder(
+        controller: _scrollController,
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: _items.length,
+        itemBuilder: (context, index) {
+          final item = _items[index];
+          return Padding(
+            padding: EdgeInsets.only(
+              left: index == 0 ? 16 : 8,
+              right: index == _items.length - 1 ? 16 : 8,
+            ),
+            child: GestureDetector(
+              onTap: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => Dialog(
+                    backgroundColor: Colors.transparent,
+                    insetPadding: const EdgeInsets.all(16),
+                    child: Stack(
+                      alignment: Alignment.topRight,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(24),
+                          child: Image.asset(
+                            item['asset']!,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white, size: 32),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+              child: _RectangularNovedadImage(
+                assetPath: item['asset']!,
+                label: item['label']!,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// ✅ Imagen rectangular local para novedades
+class _RectangularNovedadImage extends StatelessWidget {
+  final String assetPath;
+  final String label;
+  const _RectangularNovedadImage({
+    required this.assetPath,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 200,
+          height: 120,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x22000000),
+                blurRadius: 12,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: Image.asset(
+              assetPath,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                color: Colors.transparent,
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.image_not_supported_outlined,
+                  color: Colors.black38,
+                  size: 36,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: 200,
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+              color: Color(0xFF111827),
+              height: 1.25,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// ===============================
-/// FULLSCREEN GALLERY (swipe + zoom + TEXTO COMPLETO)
+/// THUMBNAIL CIRCULAR PEQUEÑO PARA NOVEDADES (no usado)
 /// ===============================
 class _BannerFullScreenPage extends StatefulWidget {
   final List<_HomeBanner> banners;
@@ -1422,9 +1869,7 @@ class _SoftShimmerPlaceholderState extends State<_SoftShimmerPlaceholder>
       builder: (_, __) {
         final t = _c.value;
         return Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFFE9EEF0),
-          ),
+          decoration: const BoxDecoration(color: Color(0xFFE9EEF0)),
           child: CustomPaint(
             painter: _ShimmerPainter(t),
             child: const SizedBox.expand(),
