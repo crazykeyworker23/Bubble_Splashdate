@@ -1,18 +1,37 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:confetti/confetti.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:bubblesplash/constants/api_constants.dart';
 import 'package:bubblesplash/services/auth_service.dart';
 
-class CanjearPuntosPage extends StatelessWidget {
+
+class CanjearPuntosPage extends StatefulWidget {
   const CanjearPuntosPage({super.key});
 
+  @override
+  State<CanjearPuntosPage> createState() => _CanjearPuntosPageState();
+}
+
+class _CanjearPuntosPageState extends State<CanjearPuntosPage> {
   static const Color _brandDark = Color(0xFF0F3D4A);
   static const Color _brandTeal = Color(0xFF128FA0);
   static const Color _bg = Color(0xFFF4FAFF);
+
+  final TextEditingController _controller = TextEditingController();
+  final ConfettiController _confettiController = ConfettiController(duration: const Duration(seconds: 2));
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _confettiController.dispose();
+    super.dispose();
+  }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -27,16 +46,40 @@ class CanjearPuntosPage extends StatelessWidget {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            _header(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
-              child: _cardCanje(context),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            child: Column(
+              children: [
+                _header(),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
+                  child: _cardCanje(context),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          Align(
+            alignment: Alignment.topCenter,
+            child: ConfettiWidget(
+              confettiController: _confettiController,
+              blastDirectionality: BlastDirectionality.explosive,
+              shouldLoop: false,
+              colors: const [
+                _brandTeal,
+                _brandDark,
+                Colors.amber,
+                Colors.pink,
+                Colors.blueAccent,
+              ],
+              emissionFrequency: 0.08,
+              numberOfParticles: 30,
+              maxBlastForce: 30,
+              minBlastForce: 10,
+              gravity: 0.2,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -78,8 +121,6 @@ class CanjearPuntosPage extends StatelessWidget {
   }
 
   Widget _cardCanje(BuildContext context) {
-    final TextEditingController controller = TextEditingController();
-
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
       decoration: BoxDecoration(
@@ -106,7 +147,7 @@ class CanjearPuntosPage extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           TextField(
-            controller: controller,
+            controller: _controller,
             decoration: InputDecoration(
               hintText: 'Ingresa tu código aquí',
               filled: true,
@@ -139,7 +180,7 @@ class CanjearPuntosPage extends StatelessWidget {
               ),
               onPressed: () async {
                 FocusScope.of(context).unfocus();
-                final code = controller.text.trim();
+                final code = _controller.text.trim();
 
                 if (code.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -212,6 +253,7 @@ class CanjearPuntosPage extends StatelessWidget {
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
         String message = 'Código canjeado correctamente.';
+        int puntos = 0;
         try {
           final decoded = jsonDecode(response.body);
           if (decoded is Map<String, dynamic>) {
@@ -219,14 +261,29 @@ class CanjearPuntosPage extends StatelessWidget {
             if (m is String && m.trim().isNotEmpty) {
               message = m.trim();
             }
+            // Buscar puntos en la respuesta
+            final dynamic pts = decoded['puntos'] ?? decoded['points'] ?? decoded['cantidad'] ?? decoded['amount'];
+            if (pts is int) {
+              puntos = pts;
+            } else if (pts is String) {
+              puntos = int.tryParse(pts) ?? 0;
+            }
           }
         } catch (_) {}
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.green,
-          ),
+        _controller.clear();
+        _confettiController.play();
+        await showDialog(
+          context: context,
+          barrierDismissible: true,
+          builder: (ctx) {
+            return _BonitaAnimacionDialog(
+              puntos: puntos > 0 ? puntos : 100,
+              mensaje: message,
+              brandTeal: _brandTeal,
+              brandDark: _brandDark,
+            );
+          },
         );
       } else {
         String errorMessage = 'No se pudo canjear el código.';
@@ -245,7 +302,7 @@ class CanjearPuntosPage extends StatelessWidget {
           }
         } catch (_) {
           if (response.body.isNotEmpty) {
-            errorMessage = 'Error ${response.statusCode}: ${response.body}';
+            errorMessage = 'Error  20${response.statusCode}: ${response.body}';
           } else {
             errorMessage = 'Error ${response.statusCode} al canjear el código.';
           }
@@ -266,5 +323,116 @@ class CanjearPuntosPage extends StatelessWidget {
         ),
       );
     }
+  }
+
+}
+
+class _BonitaAnimacionDialog extends StatefulWidget {
+  final int puntos;
+  final String mensaje;
+  final Color brandTeal;
+  final Color brandDark;
+  const _BonitaAnimacionDialog({
+    required this.puntos,
+    required this.mensaje,
+    required this.brandTeal,
+    required this.brandDark,
+  });
+
+  @override
+  State<_BonitaAnimacionDialog> createState() => _BonitaAnimacionDialogState();
+}
+
+class _BonitaAnimacionDialogState extends State<_BonitaAnimacionDialog> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<int> _pointsAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+    _pointsAnimation = IntTween(begin: 0, end: widget.puntos).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      backgroundColor: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.celebration, color: widget.brandTeal, size: 56),
+            const SizedBox(height: 12),
+            Text(
+              '¡Puntos canjeados!',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 22,
+                color: widget.brandDark,
+              ),
+            ),
+            const SizedBox(height: 10),
+            AnimatedBuilder(
+              animation: _pointsAnimation,
+              builder: (context, child) {
+                return Text(
+                  '+${_pointsAnimation.value} pts',
+                  style: TextStyle(
+                    fontSize: 36,
+                    fontWeight: FontWeight.bold,
+                    color: widget.brandTeal,
+                    shadows: [
+                      Shadow(
+                        color: widget.brandTeal.withOpacity(0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 10),
+            Text(
+              widget.mensaje,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 15, color: Colors.black87),
+            ),
+            const SizedBox(height: 18),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: widget.brandTeal,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                child: Text(
+                  '¡Gracias!',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
