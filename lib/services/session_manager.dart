@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/globals.dart';
 
 class SessionManager {
     static Future<int?> getUserId() async {
@@ -31,5 +32,29 @@ class SessionManager {
   static Future<String?> getAvatar() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('google_photo');
+  }
+
+  static Future<void> forceLogout() async {
+    final prefs = await SharedPreferences.getInstance();
+    bool remember = prefs.getBool('rememberMe') ?? false;
+
+    await prefs.setBool('isLoggedIn', false);
+    await prefs.remove('fcm_token');
+
+    // Limpia completamente la sesión
+    await prefs.remove('access_token');
+    await prefs.remove('refresh_token');
+    await prefs.remove('google_id_token');
+    await prefs.remove('google_name');
+    await prefs.remove('google_email');
+    await prefs.remove('google_photo');
+    await prefs.remove('google_id');
+
+    if (!remember) {
+      await prefs.remove('savedEmail');
+    }
+
+    // Redirigir al login usando la llave global
+    navigatorKey.currentState?.pushNamedAndRemoveUntil('/login', (route) => false);
   }
 }

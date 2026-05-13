@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:bubblesplash/services/app_http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -467,20 +467,6 @@ class _InicioPageState extends State<InicioPage> {
           'Authorization': 'Bearer $token',
         },
       );
-
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
 
       if (!mounted) return;
 

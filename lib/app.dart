@@ -7,6 +7,7 @@ import 'routes/app_routes.dart';
 import 'controllers/cart_controller.dart';
 import 'utils/route_observer.dart';
 import 'services/app_init.dart';
+import 'utils/globals.dart';
 
 import 'views/login/login_page.dart';
 import 'views/login/home_page.dart';
@@ -171,6 +172,7 @@ class MyApp extends StatelessWidget {
       create: (_) => CartController(),
       child: MaterialApp(
         title: 'Splash Bubble',
+        navigatorKey: navigatorKey,
         theme: ThemeData(
           primaryColor: const Color.fromARGB(255, 255, 255, 255),
           colorScheme: ColorScheme.fromSwatch().copyWith(

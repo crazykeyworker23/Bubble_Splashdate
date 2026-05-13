@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:bubblesplash/services/app_http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'CartPage.dart';
@@ -624,20 +624,6 @@ class _MenuPageState extends State<MenuPage>
           'Authorization': 'Bearer $token',
         },
       );
-
-      // refrescar token 1 vez
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.get(
-            uri,
-            headers: {
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
 
       if (!mounted) return;
 
@@ -1797,21 +1783,6 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         },
       );
 
-      // Reintento si expiró
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
-
       if (!mounted) return;
 
       if (response.statusCode == 200) {
@@ -1873,20 +1844,6 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         },
       );
 
-      if (responseMap.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          responseMap = await http.get(
-            uriMap,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
-
       if (responseMap.statusCode != 200) {
         debugPrint(
           'Error al cargar mapa productos-toppings: ${responseMap.statusCode} ${responseMap.body}',
@@ -1940,21 +1897,6 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           'Authorization': 'Bearer $token',
         },
       );
-
-      if (responseToppings.statusCode == 401 &&
-          await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          responseToppings = await http.get(
-            uriToppings,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
 
       if (responseToppings.statusCode != 200) {
         debugPrint(
@@ -2028,20 +1970,6 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           'Authorization': 'Bearer $token',
         },
       );
-
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
 
       if (response.statusCode != 200) {
         debugPrint(

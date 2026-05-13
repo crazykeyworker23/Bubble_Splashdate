@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
+import 'package:bubblesplash/services/app_http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
 import '../models/user_profile.dart';

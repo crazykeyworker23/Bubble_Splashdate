@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:http/http.dart' as http;
+import 'package:bubblesplash/services/app_http.dart' as http;
 
 import 'CartPage.dart';
 import 'package:bubblesplash/services/auth_service.dart';
@@ -447,20 +447,6 @@ class _BeneficiosPageState extends State<BeneficiosPage>
           },
         );
 
-        if (response.statusCode == 401 && await AuthService.refreshToken()) {
-          final newToken = prefs.getString('access_token')?.trim();
-          if (newToken != null && newToken.isNotEmpty) {
-            response = await http.get(
-              uri,
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': 'Bearer $newToken',
-              },
-            );
-          }
-        }
-
         if (response.statusCode == 200) {
           final dynamic body = jsonDecode(response.body);
           int backendPoints = 0;
@@ -582,20 +568,6 @@ class _BeneficiosPageState extends State<BeneficiosPage>
           'Authorization': 'Bearer $token',
         },
       );
-
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
 
       if (!mounted) return;
 
@@ -1733,24 +1705,6 @@ class RewardCard extends StatelessWidget {
                       'off_int_id': offerId,
                     }),
                   );
-
-                  if (response.statusCode == 401 &&
-                      await AuthService.refreshToken()) {
-                    final newToken = prefs.getString('access_token')?.trim();
-                    if (newToken != null && newToken.isNotEmpty) {
-                      response = await http.post(
-                        uri,
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'Accept': 'application/json',
-                          'Authorization': 'Bearer $newToken',
-                        },
-                        body: jsonEncode({
-                          'off_int_id': offerId,
-                        }),
-                      );
-                    }
-                  }
 
                   if (response.statusCode == 200 ||
                       response.statusCode == 201) {

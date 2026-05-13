@@ -3,8 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import '../../constants/api_constants.dart';
-import 'package:http/http.dart' as http;
-import 'package:bubblesplash/services/auth_service.dart';
+import 'package:bubblesplash/services/app_http.dart' as http;
 
 import 'dart:io';
 import 'package:open_file/open_file.dart';
@@ -172,91 +171,58 @@ class _MovimientosPageState extends State<MovimientosPage> {
   Future<void> _cargarMovimientos() async {
     List<Map<String, dynamic>> apiMovimientos = [];
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final rawToken = prefs.getString('access_token');
+      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/movimientos/');
 
-      if (rawToken == null || rawToken.trim().isEmpty) {
-        debugPrint('No hay access_token para consultar movimientos (API)');
-      } else {
-        final token = rawToken.trim();
-        final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/movimientos/');
+      // AppHttp renueva el token automáticamente y fuerza logout si expira.
+      final http.Response response = await http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer __placeholder__',
+        },
+      );
 
-        http.Response response = await http.get(
-          uri,
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-        );
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
 
-        // Si el token expiró (401), intentamos refrescar y reintentar una vez
-        if (response.statusCode == 401 && await AuthService.refreshToken()) {
-          final newToken = prefs.getString('access_token')?.trim();
-          if (newToken != null && newToken.isNotEmpty) {
-            response = await http.get(
-              uri,
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': 'Bearer $newToken',
-              },
-            );
+        // Solo usamos de la API los movimientos de tipo RECARGA.
+        // Los gastos (compras/pagos de pedido) ya se registran de forma local
+        // en ReceiptPage y ScannerPage, y mostrarlos de la API duplica
+        // comprobantes como "Pago de pedido".
+        apiMovimientos = data.whereType<Map<String, dynamic>>().map((item) {
+          final String rawType = (item['wmv_txt_type'] ?? '').toString();
+          final bool esRecarga = rawType.toUpperCase() == 'RECARGA';
+
+          if (!esRecarga) return null; // Ignoramos gastos de la API
+
+          final String amountStr = (item['wmv_de_amount'] ?? '0').toString();
+          final double monto = double.tryParse(amountStr) ?? 0.0;
+          final String descripcion = (item['wmv_txt_description'] ?? '').toString();
+          final String fechaIso = (item['timestamp_datecreate'] ?? '').toString();
+
+          String fecha = fechaIso;
+          if (fechaIso.contains('T')) {
+            try {
+              fecha = fechaIso.replaceFirst('T', ' ').substring(0, 16);
+            } catch (_) {
+              fecha = fechaIso;
+            }
           }
-        }
 
-        if (response.statusCode == 401) {
-          debugPrint('Sesión expirada al cargar movimientos (API)');
-        } else if (response.statusCode == 200) {
-          final List<dynamic> data =
-              jsonDecode(response.body) as List<dynamic>;
-
-          // Solo usamos de la API los movimientos de tipo RECARGA.
-          // Los gastos (compras/pagos de pedido) ya se registran de forma local
-          // en ReceiptPage y ScannerPage, y mostrarlos de la API duplica
-          // comprobantes como "Pago de pedido".
-          apiMovimientos = data.whereType<Map<String, dynamic>>().map((item) {
-            final String rawType =
-                (item['wmv_txt_type'] ?? '').toString();
-            final bool esRecarga = rawType.toUpperCase() == 'RECARGA';
-
-            if (!esRecarga) {
-              return null; // Ignoramos gastos de la API
-            }
-
-            final String amountStr =
-                (item['wmv_de_amount'] ?? '0').toString();
-            final double monto = double.tryParse(amountStr) ?? 0.0;
-
-            final String descripcion =
-                (item['wmv_txt_description'] ?? '').toString();
-            final String fechaIso =
-                (item['timestamp_datecreate'] ?? '').toString();
-
-            String fecha = fechaIso;
-            if (fechaIso.contains('T')) {
-              try {
-                fecha = fechaIso.replaceFirst('T', ' ').substring(0, 16);
-              } catch (_) {
-                fecha = fechaIso;
-              }
-            }
-
-            final String id = (item['wmv_int_id'] ?? '').toString();
-
-            return <String, dynamic>{
-              'tipo': 'recarga',
-              'monto': monto,
-              'metodo': descripcion,
-              'referencia': id,
-              'fecha': fecha,
-              'codigo': 'MOV$id',
-            };
-          }).whereType<Map<String, dynamic>>().toList();
-        } else {
-          debugPrint(
-              'Error al cargar movimientos (API): ${response.statusCode} ${response.body}');
-        }
+          final String id = (item['wmv_int_id'] ?? '').toString();
+          return <String, dynamic>{
+            'tipo': 'recarga',
+            'monto': monto,
+            'metodo': descripcion,
+            'referencia': id,
+            'fecha': fecha,
+            'codigo': 'MOV$id',
+          };
+        }).whereType<Map<String, dynamic>>().toList();
+      } else {
+        debugPrint(
+            'Error al cargar movimientos (API): ${response.statusCode} ${response.body}');
       }
     } catch (e) {
       debugPrint('Excepción al cargar movimientos (API): $e');

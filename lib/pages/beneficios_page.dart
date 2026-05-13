@@ -50,8 +50,14 @@ class _BenefitCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0D6EFD))),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF0D6EFD),
+            ),
+          ),
           const SizedBox(height: 5),
           Text(desc, style: const TextStyle(color: Colors.black87)),
         ],

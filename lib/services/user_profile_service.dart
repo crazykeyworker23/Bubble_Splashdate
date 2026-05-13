@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:bubblesplash/services/app_http.dart' as http;
 import '../models/user_profile.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bubblesplash/services/auth_service.dart';
@@ -20,22 +20,6 @@ class UserProfileService {
       },
       body: jsonEncode(patchBody),
     );
-
-    // Si el token expiró (401), intentamos refrescar y reintentar una vez
-    if (response.statusCode == 401 && await AuthService.refreshToken()) {
-      token = prefs.getString('access_token') ?? '';
-      if (token.isNotEmpty) {
-        response = await http.patch(
-          url,
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-          body: jsonEncode(patchBody),
-        );
-      }
-    }
 
     if (response.statusCode == 200 || response.statusCode == 204) {
       return true;

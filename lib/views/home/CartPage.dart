@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'ReceiptPage.dart';
 import 'pagos_page.dart';
+import 'package:bubblesplash/services/app_http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:bubblesplash/services/auth_service.dart';
 import 'package:bubblesplash/constants/backend_config.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 import 'dart:typed_data';
@@ -402,56 +401,17 @@ class _CartPageState extends State<CartPage> {
 
   Future<bool> _verificarSaldoSuficiente() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final rawToken = prefs.getString('access_token');
-
-      if (rawToken == null || rawToken.trim().isEmpty) {
-        await _showPremiumModal(
-          title: 'Sesión requerida',
-          message:
-              'No hay access token. Inicia sesión nuevamente para usar tu billetera.',
-          icon: Icons.lock_rounded,
-          accent: const Color(0xFF1B6F81),
-        );
-        return false;
-      }
-
-      final token = rawToken.trim();
       final uri = BackendConfig.api('bubblesplash/wallet/me/');
 
-      http.Response response = await http.get(
+      // AppHttp renueva el token automáticamente y fuerza logout si expira.
+      final http.Response response = await http.get(
         uri,
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
+          'Authorization': 'Bearer __placeholder__', // AppHttp reemplaza esto
         },
       );
-
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
-
-      if (response.statusCode == 401) {
-        await _showPremiumModal(
-          title: 'Sesión expirada',
-          message:
-              'Tu sesión ha expirado. Inicia sesión nuevamente para usar tu billetera.',
-          icon: Icons.schedule_rounded,
-          accent: const Color(0xFFE80A5D),
-        );
-        return false;
-      }
 
       if (response.statusCode != 200) {
         debugPrint(
@@ -545,8 +505,6 @@ class _CartPageState extends State<CartPage> {
                             ),
                             onPressed: () {
                               Navigator.of(context).pop();
-
-                              // 👉 NAVEGACIÓN DIRECTA A PagosPage
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
@@ -611,33 +569,16 @@ class _CartPageState extends State<CartPage> {
 
   Future<double?> _getSaldoBackend() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final rawToken = prefs.getString('access_token');
-      if (rawToken == null || rawToken.trim().isEmpty) return null;
-
       final uri = BackendConfig.api('bubblesplash/wallet/me/');
-      http.Response response = await http.get(
+      // AppHttp renueva el token automáticamente.
+      final http.Response response = await http.get(
         uri,
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'Authorization': 'Bearer ${rawToken.trim()}',
+          'Authorization': 'Bearer __placeholder__',
         },
       );
-
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
 
       if (response.statusCode != 200) {
         debugPrint(
@@ -658,20 +599,6 @@ class _CartPageState extends State<CartPage> {
 
   Future<Map<String, dynamic>?> _crearPedidoBackend() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final rawToken = prefs.getString('access_token');
-
-      if (rawToken == null || rawToken.trim().isEmpty) {
-        await _showPremiumModal(
-          title: 'Sesión requerida',
-          message: 'No hay access token. Inicia sesión nuevamente para pagar.',
-          icon: Icons.lock_rounded,
-          accent: const Color(0xFF1B6F81),
-        );
-        return null;
-      }
-
-      final token = rawToken.trim();
 
       String deliveryCode;
       if (selectedDineOption.toLowerCase().contains('llevar')) {
@@ -765,41 +692,16 @@ class _CartPageState extends State<CartPage> {
 
       final uri = BackendConfig.api('bubblesplash/pedidos/');
 
-      http.Response response = await http.post(
+      // AppHttp renueva el token automáticamente y fuerza logout si expira.
+      final http.Response response = await http.post(
         uri,
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
+          'Authorization': 'Bearer __placeholder__',
         },
         body: body,
       );
-
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-            body: body,
-          );
-        }
-      }
-
-      if (response.statusCode == 401) {
-        await _showPremiumModal(
-          title: 'Sesión expirada',
-          message:
-              'Tu sesión ha expirado. Inicia sesión nuevamente para pagar.',
-          icon: Icons.schedule_rounded,
-          accent: const Color(0xFFE80A5D),
-        );
-        return null;
-      }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         debugPrint('CREAR PEDIDO OK => ${response.statusCode} ${response.body}');

@@ -17,7 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../constants/api_constants.dart';
-import 'package:http/http.dart' as http;
+import 'package:bubblesplash/services/app_http.dart' as http;
 
 import 'package:bubblesplash/services/auth_service.dart';
 import 'package:bubblesplash/widgets/cart_fab_button.dart';
@@ -184,58 +184,17 @@ class _PagosPageState extends State<PagosPage> {
   Future<void> _cargarSaldo() async {
     setState(() => _loadingSaldo = true);
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final rawToken = prefs.getString('access_token');
-
-      if (rawToken == null || rawToken.trim().isEmpty) {
-        setState(() {
-          saldoActual = 0.0;
-          _loadingSaldo = false;
-        });
-        debugPrint('No hay access_token para consultar el saldo en la API');
-        return;
-      }
-
-      final token = rawToken.trim();
       final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/me/');
 
-      http.Response response = await http.get(
+      // AppHttp renueva el token automáticamente y fuerza logout si expira.
+      final http.Response response = await http.get(
         uri,
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
+          'Authorization': 'Bearer __placeholder__',
         },
       );
-
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-          );
-        }
-      }
-
-      if (response.statusCode == 401) {
-        debugPrint('Sesión expirada al consultar saldo wallet/me');
-        setState(() {
-          saldoActual = 0.0;
-          _loadingSaldo = false;
-        });
-        await _showPremiumModal(
-          title: 'Sesión expirada',
-          message: 'Tu sesión expiró. Inicia sesión nuevamente para ver tu saldo.',
-          icon: Icons.schedule_rounded,
-          accent: const Color(0xFFE80A5D),
-        );
-        return;
-      }
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -940,20 +899,6 @@ class _PagosPageState extends State<PagosPage> {
           },
         );
 
-        if (response.statusCode == 401 && await AuthService.refreshToken()) {
-          final newToken = prefs.getString('access_token')?.trim();
-          if (newToken != null && newToken.isNotEmpty) {
-            response = await http.get(
-              uri,
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': 'Bearer $newToken',
-              },
-            );
-          }
-        }
-
         if (response.statusCode == 200) {
           final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
 
@@ -1159,21 +1104,6 @@ class _PagosPageState extends State<PagosPage> {
         },
         body: body,
       );
-
-      if (response.statusCode == 401 && await AuthService.refreshToken()) {
-        final newToken = prefs.getString('access_token')?.trim();
-        if (newToken != null && newToken.isNotEmpty) {
-          response = await http.post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $newToken',
-            },
-            body: body,
-          );
-        }
-      }
 
       if (response.statusCode == 401) {
         await _showPremiumModal(
