@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'ReceiptPage.dart';
 import 'pagos_page.dart';
 import 'package:bubblesplash/services/app_http.dart' as http;
@@ -789,12 +790,23 @@ class _CartPageState extends State<CartPage> {
 
     Widget imageWidget;
     if (isNetworkImage) {
-      imageWidget = Image.network(
-        imagePath!,
+      imageWidget = CachedNetworkImage(
+        imageUrl: imagePath!,
         height: 85,
         width: 85,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Image.asset(
+        placeholder: (context, url) => Container(
+          height: 85,
+          width: 85,
+          color: Colors.grey[200],
+          alignment: Alignment.center,
+          child: const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+        errorWidget: (context, url, error) => Image.asset(
           'assets/bebidas.png',
           height: 85,
           width: 85,

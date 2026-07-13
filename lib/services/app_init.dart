@@ -1,19 +1,101 @@
+import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'fcm_service.dart';
+import 'package:bubblesplash/widgets/in_app_notification_banner.dart';
 
 // ------------------------------------------------------
 // 1) HANDLER DE MENSAJES EN BACKGROUND (TOP-LEVEL)
 // ------------------------------------------------------
+// ------------------------------------------------------
+// 0) HELPER: EXTRAER TÍTULO Y CUERPO DE FORMA ULTRA SEGURA Y CON FALLBACKS
+// ------------------------------------------------------
+Map<String, String> _extractTitleAndBody(RemoteMessage message) {
+  final data = message.data;
+  final notification = message.notification;
+
+  String? title = notification?.title;
+  if (title == null || title.trim().isEmpty) {
+    title = data['title']?.toString() ??
+            data['headline']?.toString() ??
+            data['header']?.toString() ??
+            data['subject']?.toString() ??
+            'Notificación';
+  }
+
+  String? body = notification?.body;
+  if (body == null || body.trim().isEmpty) {
+    body = data['body']?.toString() ??
+           data['message']?.toString() ??
+           data['content']?.toString() ??
+           data['desc']?.toString() ??
+           data['description']?.toString() ??
+           data['text']?.toString() ??
+           data['msg']?.toString() ??
+           '';
+  }
+
+  return {'title': title, 'body': body};
+}
+
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   print('⚡ [BG] Mensaje en background: \'${message.messageId}\'');
-  print('⚡ [BG] Title: ${message.notification?.title}');
-  print('⚡ [BG] Body: ${message.notification?.body}');
+  
+  final extracted = _extractTitleAndBody(message);
+  final title = extracted['title']!;
+  final body = extracted['body']!;
+
+  print('⚡ [BG] Title Extraído: $title');
+  print('⚡ [BG] Body Extraído: $body');
   print('⚡ [BG] Data: ${message.data}');
+
+  // Si es un mensaje de tipo datos sin notificación directa del SO,
+  // levantamos nosotros la notificación local en el isolate de background.
+  if (message.notification == null) {
+    if (title.isNotEmpty || body.isNotEmpty) {
+      const AndroidInitializationSettings androidInit =
+          AndroidInitializationSettings('ic_notification');
+      const DarwinInitializationSettings iosInit = DarwinInitializationSettings();
+      const InitializationSettings initSettings = InitializationSettings(
+        android: androidInit,
+        iOS: iosInit,
+      );
+
+      await flutterLocalNotificationsPlugin.initialize(
+        initSettings,
+        onDidReceiveNotificationResponse: (_) {},
+      );
+
+      const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+        'high_importance_channel',
+        'Notificaciones',
+        channelDescription: 'Notificaciones generales de la app',
+        importance: Importance.max,
+        priority: Priority.max,
+        color: Color(0xFF0B3D4A), // Color azul marino de la marca
+        colorized: true, // Pinta el fondo de la notificación con el color de marca
+        largeIcon: DrawableResourceAndroidBitmap('ic_launcher'), // Logo de la app a color
+      );
+
+      const NotificationDetails platformDetails = NotificationDetails(
+        android: androidDetails,
+        iOS: DarwinNotificationDetails(),
+      );
+
+      await flutterLocalNotificationsPlugin.show(
+        message.hashCode,
+        title.isNotEmpty ? title : 'Notificación',
+        body,
+        platformDetails,
+        payload: message.data.toString(),
+      );
+      print('✅ [BG] Notificación local de datos mostrada en background');
+    }
+  }
 }
 
 // ------------------------------------------------------
@@ -24,10 +106,10 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 
 // Canal para Android 8+
 const AndroidNotificationChannel defaultChannel = AndroidNotificationChannel(
-  'default_channel', // ID
+  'high_importance_channel', // ID
   'Notificaciones', // Nombre visible
   description: 'Notificaciones generales de la app',
-  importance: Importance.high,
+  importance: Importance.max,
 );
 
 // ------------------------------------------------------
@@ -58,7 +140,7 @@ Future<void> requestNotificationPermissions() async {
 // ------------------------------------------------------
 Future<void> initLocalNotifications() async {
   const AndroidInitializationSettings androidInit =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
+      AndroidInitializationSettings('ic_notification');
 
   const DarwinInitializationSettings iosInit = DarwinInitializationSettings();
 
@@ -88,22 +170,19 @@ Future<void> initLocalNotifications() async {
 // ------------------------------------------------------
 Future<void> showLocalNotification(RemoteMessage message) async {
   final notification = message.notification;
-  final data = message.data;
 
   print('🔔 [LOCAL] Preparando notificación local...');
-  print(
-    '🔔 [LOCAL] notification: title=${notification?.title}, body=${notification?.body}',
-  );
-  print('🔔 [LOCAL] data: $data');
+  print('🔔 [LOCAL] data: ${message.data}');
 
-  // Título y cuerpo desde notification o, si no hay, desde data
-  final String? title = notification?.title ?? data['title']?.toString();
-  final String? body = notification?.body ?? data['body']?.toString();
+  // Extraer título y cuerpo usando el helper ultra seguro
+  final extracted = _extractTitleAndBody(message);
+  final title = extracted['title']!;
+  final body = extracted['body']!;
 
-  if (title == null && body == null) {
-    print(
-      '⚠️ [LOCAL] Mensaje sin notification ni campos title/body en data: ${message.data}',
-    );
+  print('🔔 [LOCAL] Title Extraído: $title, Body Extraído: $body');
+
+  if (title.isEmpty && body.isEmpty) {
+    print('⚠️ [LOCAL] Mensaje sin contenido de texto (título y cuerpo vacíos). No se muestra.');
     return;
   }
 
@@ -111,8 +190,11 @@ Future<void> showLocalNotification(RemoteMessage message) async {
     defaultChannel.id,
     defaultChannel.name,
     channelDescription: defaultChannel.description,
-    importance: Importance.high,
-    priority: Priority.high,
+    importance: Importance.max,
+    priority: Priority.max,
+    color: const Color(0xFF0B3D4A), // Color azul marino de la marca
+    colorized: true, // Pinta el fondo de la notificación con el color de marca
+    largeIcon: const DrawableResourceAndroidBitmap('ic_launcher'), // Logo de la app a color
   );
 
   const DarwinNotificationDetails iosDetails = DarwinNotificationDetails();
@@ -124,8 +206,8 @@ Future<void> showLocalNotification(RemoteMessage message) async {
 
   await flutterLocalNotificationsPlugin.show(
     notification?.hashCode ?? DateTime.now().millisecondsSinceEpoch,
-    title ?? 'Notificación',
-    body ?? '',
+    title.isNotEmpty ? title : 'Notificación',
+    body,
     platformDetails,
     payload: message.data.toString(),
   );
@@ -149,16 +231,25 @@ Future<void> initializeAppServices() async {
   // Pedir permiso para mostrar notificaciones (popup SO)
   await requestNotificationPermissions();
 
-  // Inicializar/actualizar token FCM y, si hay sesión iniciada,
-  // enviarlo al backend para actualizar use_txt_fcm.
-  await FcmService.initAndSendTokenIfPossible();
-
   // Listener: cuando llega un mensaje con la app ABIERTA (foreground)
   FirebaseMessaging.onMessage.listen((RemoteMessage message) {
     print('📩 [FG] Mensaje en FOREGROUND: ${message.messageId}');
-    print('📩 [FG] Title: ${message.notification?.title}');
-    print('📩 [FG] Body: ${message.notification?.body}');
     print('📩 [FG] Data: ${message.data}');
+
+    // Extraer título y cuerpo usando el helper ultra seguro
+    final extracted = _extractTitleAndBody(message);
+    final title = extracted['title']!;
+    final body = extracted['body']!;
+
+    print('📩 [FG] Title Extraído: $title, Body Extraído: $body');
+
+    if (title.isNotEmpty || body.isNotEmpty) {
+      InAppNotificationBanner.show(
+        title: title.isNotEmpty ? title : 'Notificación',
+        body: body,
+      );
+    }
+
     showLocalNotification(message);
   });
 
@@ -170,5 +261,20 @@ Future<void> initializeAppServices() async {
     print('🚪 [OPEN] Data: ${message.data}');
     // Aquí puedes navegar, por ejemplo:
     // navigatorKey.currentState?.pushNamed('/detalle', arguments: message.data);
+  });
+
+  // Manejo de la notificación que abrió la app desde un estado TERMINADO (tercer plano)
+  FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+    if (message != null) {
+      print('🚀 [INITIAL] App abierta desde notificación terminada: ${message.messageId}');
+      print('🚀 [INITIAL] Title: ${message.notification?.title}');
+      print('🚀 [INITIAL] Body: ${message.notification?.body}');
+      print('🚀 [INITIAL] Data: ${message.data}');
+    }
+  });
+
+  // Inicializar/actualizar token FCM y enviarlo al backend de forma asíncrona
+  FcmService.initAndSendTokenIfPossible().catchError((e) {
+    print('⚠️ Error al inicializar/enviar token FCM (app_init): $e');
   });
 }

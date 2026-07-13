@@ -66,7 +66,7 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
 
   Future<void> _initNotifications() async {
     const AndroidInitializationSettings initAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+        AndroidInitializationSettings('ic_notification');
     const InitializationSettings initSettings =
         InitializationSettings(android: initAndroid);
 

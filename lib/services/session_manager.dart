@@ -1,12 +1,15 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../utils/globals.dart';
 
 class SessionManager {
-    static Future<int?> getUserId() async {
-      final prefs = await SharedPreferences.getInstance();
-      // Ajusta la clave según cómo guardes el id en SharedPreferences
-      return prefs.getInt('user_id');
-    }
+  static Future<int?> getUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    // Ajusta la clave según cómo guardes el id en SharedPreferences
+    return prefs.getInt('user_id');
+  }
+
   static Future<String?> getFcmToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('google_id_token') ?? prefs.getString('use_txt_fcm');
@@ -38,21 +41,28 @@ class SessionManager {
     final prefs = await SharedPreferences.getInstance();
     bool remember = prefs.getBool('rememberMe') ?? false;
 
-    await prefs.setBool('isLoggedIn', false);
-    await prefs.remove('fcm_token');
+    // Trigger Firebase and Google Sign-Out concurrently in background.
+    // We set a short timeout of 500ms so network delay won't block the UI logout.
+    try {
+      await Future.wait([
+        FirebaseAuth.instance.signOut().timeout(const Duration(milliseconds: 500)).catchError((_) => null),
+        GoogleSignIn().signOut().timeout(const Duration(milliseconds: 500)).catchError((_) => null),
+      ]);
+    } catch (_) {}
 
-    // Limpia completamente la sesión
-    await prefs.remove('access_token');
-    await prefs.remove('refresh_token');
-    await prefs.remove('google_id_token');
-    await prefs.remove('google_name');
-    await prefs.remove('google_email');
-    await prefs.remove('google_photo');
-    await prefs.remove('google_id');
-
-    if (!remember) {
-      await prefs.remove('savedEmail');
-    }
+    // Limpia la sesión en paralelo (optimización de llamadas a canal nativo)
+    await Future.wait([
+      prefs.setBool('isLoggedIn', false),
+      prefs.remove('fcm_token'),
+      prefs.remove('access_token'),
+      prefs.remove('refresh_token'),
+      prefs.remove('google_id_token'),
+      prefs.remove('google_name'),
+      prefs.remove('google_email'),
+      prefs.remove('google_photo'),
+      prefs.remove('google_id'),
+      if (!remember) prefs.remove('savedEmail'),
+    ]);
 
     // Redirigir al login usando la llave global
     navigatorKey.currentState?.pushNamedAndRemoveUntil('/login', (route) => false);

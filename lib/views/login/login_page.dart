@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 
 import '../../services/fcm_service.dart';
 import '../../constants/service_code.dart';
+import '../../services/user_info_service.dart';
 
 import '../../widgets/custom_button.dart';
 import '../login/register_page.dart';
@@ -63,15 +64,16 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _saveLoginEmailOnly() async {
     final prefs = await SharedPreferences.getInstance();
 
-    if (rememberMe) {
-      await prefs.setString('savedEmail', _emailController.text.trim());
-      await prefs.setBool('rememberMe', true);
-    } else {
-      await prefs.remove('savedEmail');
-      await prefs.setBool('rememberMe', false);
-    }
-
-    await prefs.setBool('isLoggedIn', true);
+    await Future.wait([
+      if (rememberMe) ...[
+        prefs.setString('savedEmail', _emailController.text.trim()),
+        prefs.setBool('rememberMe', true),
+      ] else ...[
+        prefs.remove('savedEmail'),
+        prefs.setBool('rememberMe', false),
+      ],
+      prefs.setBool('isLoggedIn', true),
+    ]);
   }
 
   Future<void> _saveGoogleLogin({
@@ -83,18 +85,16 @@ class _LoginPageState extends State<LoginPage> {
   }) async {
     final prefs = await SharedPreferences.getInstance();
 
-    await prefs.setString('google_email', email);
-    if (name != null) await prefs.setString('google_name', name);
-    if (photoUrl != null) await prefs.setString('google_photo', photoUrl);
-    if (googleId != null) await prefs.setString('google_id', googleId);
-
-    if (idToken != null && idToken.isNotEmpty) {
-      await prefs.setString('google_id_token', idToken);
-    }
-
-    await prefs.setString('savedEmail', email);
-    await prefs.setBool('rememberMe', true);
-    await prefs.setBool('isLoggedIn', true);
+    await Future.wait([
+      prefs.setString('google_email', email),
+      if (name != null) prefs.setString('google_name', name),
+      if (photoUrl != null) prefs.setString('google_photo', photoUrl),
+      if (googleId != null) prefs.setString('google_id', googleId),
+      if (idToken != null && idToken.isNotEmpty) prefs.setString('google_id_token', idToken),
+      prefs.setString('savedEmail', email),
+      prefs.setBool('rememberMe', true),
+      prefs.setBool('isLoggedIn', true),
+    ]);
   }
 
   bool _validateEmail(String email) {
@@ -240,12 +240,6 @@ class _LoginPageState extends State<LoginPage> {
 
         final prefs = await SharedPreferences.getInstance();
 
-        await prefs.remove('google_name');
-        await prefs.remove('google_email');
-        await prefs.remove('google_photo');
-        await prefs.remove('google_id');
-        await prefs.remove('google_id_token');
-
         // Permite que el backend envíe los tokens tanto en la raíz
         // como dentro de una clave "data", y con distintos nombres.
         final dynamic tokenContainer =
@@ -264,29 +258,35 @@ class _LoginPageState extends State<LoginPage> {
           throw Exception('No se recibió access_token desde el backend de login.');
         }
 
-        await prefs.setString('access_token', accessToken);
-        if (refreshToken.isNotEmpty) {
-          await prefs.setString('refresh_token', refreshToken);
-        }
-
         // Datos de usuario: pueden venir en tokenContainer['user'] o en decoded['user'].
         final dynamic userData =
             (tokenContainer['user'] is Map<String, dynamic>)
                 ? tokenContainer['user']
                 : decoded['user'];
 
+        String? fullName;
+        String? emailUser;
         if (userData is Map<String, dynamic>) {
-          final fullName = userData['use_txt_fullname']?.toString();
-          final emailUser = userData['use_txt_email']?.toString();
-
-          if (fullName != null && fullName.trim().isNotEmpty) {
-            await prefs.setString('google_name', fullName);
-            await prefs.setString('use_txt_fullname', fullName);
-          }
-          if (emailUser != null && emailUser.trim().isNotEmpty) {
-            await prefs.setString('google_email', emailUser);
-          }
+          fullName = userData['use_txt_fullname']?.toString();
+          emailUser = userData['use_txt_email']?.toString();
         }
+
+        // Guardar todos los datos y limpiar estados de Google en paralelo
+        await Future.wait([
+          prefs.remove('google_name'),
+          prefs.remove('google_email'),
+          prefs.remove('google_photo'),
+          prefs.remove('google_id'),
+          prefs.remove('google_id_token'),
+          prefs.setString('access_token', accessToken),
+          if (refreshToken.isNotEmpty) prefs.setString('refresh_token', refreshToken),
+          if (fullName != null && fullName.trim().isNotEmpty) ...[
+            prefs.setString('google_name', fullName),
+            prefs.setString('use_txt_fullname', fullName),
+          ],
+          if (emailUser != null && emailUser.trim().isNotEmpty)
+            prefs.setString('google_email', emailUser),
+        ]);
 
         await _saveLoginEmailOnly();
         await FcmService.initAndSendTokenIfPossible();
@@ -301,25 +301,88 @@ class _LoginPageState extends State<LoginPage> {
           msg = 'Credenciales incorrectas.';
         }
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        _showErrorDialog(title: 'Error de ingreso', message: msg);
       }
     } catch (e) {
       debugPrint('❌ Error Email/Password: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      _handleLoginError(e);
     } finally {
       if (mounted) setState(() => _loadingEmail = false);
     }
   }
 
+  void _handleLoginError(dynamic e) {
+    final errStr = e.toString().toLowerCase();
+    final isNetwork = errStr.contains('socketexception') ||
+        errStr.contains('failed host lookup') ||
+        errStr.contains('clientexception') ||
+        errStr.contains('handshake') ||
+        errStr.contains('network') ||
+        errStr.contains('connection') ||
+        errStr.contains('network_error') ||
+        errStr.contains('apiexception: 7');
+
+    final title = isNetwork ? 'Error de Conexión' : 'Ocurrió un inconveniente';
+    final message = isNetwork
+        ? 'No se pudo conectar con el servidor o Google. Comprueba tu señal de Internet e intenta de nuevo.'
+        : 'No se pudo completar el inicio de sesión. Por favor, comprueba tus datos e intenta de nuevo.';
+
+    _showErrorDialog(title: title, message: message);
+  }
+
+  void _showErrorDialog({required String title, required String message}) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 28),
+              const SizedBox(width: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Color(0xFF062B35),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(
+              color: Colors.black54,
+              fontSize: 14,
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'Entendido',
+                style: TextStyle(
+                  color: Color(0xFF1B6F81),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _handleGoogleSignIn() async {
     try {
       setState(() => _loadingGoogle = true);
-
-      await _googleSignIn.signOut();
-      try {
-        await _googleSignIn.disconnect();
-      } catch (_) {}
 
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) return;
@@ -341,7 +404,6 @@ class _LoginPageState extends State<LoginPage> {
         serviceCode: kServiceCode,
       );
 
-      // Extraer tokens del backend (pueden venir anidados en "data")
       final prefs = await SharedPreferences.getInstance();
 
       final dynamic tokenContainer =
@@ -357,18 +419,21 @@ class _LoginPageState extends State<LoginPage> {
         throw Exception('No se recibió access_token desde el backend para Google.');
       }
 
-      await prefs.setString('access_token', accessToken);
-      if (refreshToken.isNotEmpty) {
-        await prefs.setString('refresh_token', refreshToken);
-      }
+      // Guardar todos los tokens y credenciales de Google en paralelo
+      await Future.wait([
+        prefs.setString('access_token', accessToken),
+        if (refreshToken.isNotEmpty) prefs.setString('refresh_token', refreshToken),
+        _saveGoogleLogin(
+          email: googleUser.email,
+          name: googleUser.displayName,
+          photoUrl: googleUser.photoUrl,
+          googleId: googleUser.id,
+          idToken: googleAuth.idToken,
+        ),
+      ]);
 
-      await _saveGoogleLogin(
-        email: googleUser.email,
-        name: googleUser.displayName,
-        photoUrl: googleUser.photoUrl,
-        googleId: googleUser.id,
-        idToken: googleAuth.idToken,
-      );
+      // Asegurar que el usuario de Google tenga sucursal asociada
+      await UserInfoService.ensureUserHasServiceId();
 
       await FcmService.initAndSendTokenIfPossible();
       if (!mounted) return;
@@ -379,7 +444,7 @@ class _LoginPageState extends State<LoginPage> {
     } catch (e) {
       debugPrint('❌ Error Google Sign-In: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      _handleLoginError(e);
     } finally {
       if (mounted) setState(() => _loadingGoogle = false);
     }

@@ -2,12 +2,11 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:confetti/confetti.dart';
-import 'package:http/http.dart' as http;
+import 'package:bubblesplash/services/app_http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-import 'package:bubblesplash/constants/api_constants.dart';
-import 'package:bubblesplash/services/auth_service.dart';
-
+import 'package:bubblesplash/constants/backend_config.dart';
 
 class CanjearPuntosPage extends StatefulWidget {
   const CanjearPuntosPage({super.key});
@@ -30,8 +29,6 @@ class _CanjearPuntosPageState extends State<CanjearPuntosPage> {
     _confettiController.dispose();
     super.dispose();
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -211,45 +208,29 @@ class _CanjearPuntosPageState extends State<CanjearPuntosPage> {
       String? rawToken = prefs.getString('access_token');
 
       if (rawToken == null || rawToken.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No hay sesión activa para canjear el código.'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No hay sesión activa para canjear el código.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
         return;
       }
 
       rawToken = rawToken.trim();
+      final uri = BackendConfig.api('bubblesplash/promo-codes/redeem/');
 
-      Future<http.Response> _postWithToken(String token) {
-        final uri = Uri.parse(
-          ApiConstants.baseUrl + '/bubblesplash/promo-codes/redeem/',
-        );
-
-        return http.post(
-          uri,
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-          body: jsonEncode({'code': code}),
-        );
-      }
-
-      http.Response response = await _postWithToken(rawToken);
-
-      // Si el token expiró, intentamos refrescarlo una vez.
-      if (response.statusCode == 401) {
-        final refreshed = await AuthService.refreshToken();
-        if (refreshed) {
-          final newToken = (prefs.getString('access_token') ?? '').trim();
-          if (newToken.isNotEmpty) {
-            response = await _postWithToken(newToken);
-          }
-        }
-      }
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $rawToken',
+        },
+        body: jsonEncode({'code': code}),
+      );
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
         String message = 'Código canjeado correctamente.';
@@ -271,20 +252,67 @@ class _CanjearPuntosPageState extends State<CanjearPuntosPage> {
           }
         } catch (_) {}
 
+        // Actualizar el caché local de puntos para reflejar el cambio de inmediato en la interfaz
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final keyPoints = 'beneficios_puntos_cache_${user.uid}';
+          final keyPuntosAlt = 'puntos_${user.uid}';
+          final currentPoints = prefs.getInt(keyPoints) ?? 0;
+
+          // Hacemos fetch al progreso para obtener el total actualizado del servidor
+          int backendPoints = currentPoints;
+          try {
+            final progUri = BackendConfig.api('bubblesplash/progreso/');
+            final progResponse = await http.get(
+              progUri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': 'Bearer $rawToken',
+              },
+            );
+            if (progResponse.statusCode == 200) {
+              final dynamic body = jsonDecode(progResponse.body);
+              if (body is Map<String, dynamic>) {
+                final dynamic pointsObj = body['points'];
+                if (pointsObj is Map<String, dynamic>) {
+                  backendPoints = int.tryParse((pointsObj['upo_int_totalpoints'] ?? '0').toString()) ?? 0;
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint('Error al actualizar puntos de progreso: $e');
+          }
+
+          if (backendPoints != currentPoints && backendPoints > 0) {
+            final diff = backendPoints - currentPoints;
+            if (diff > 0) {
+              puntos = diff;
+            }
+            await prefs.setInt(keyPoints, backendPoints);
+            await prefs.setInt(keyPuntosAlt, backendPoints);
+          } else if (puntos > 0) {
+            await prefs.setInt(keyPoints, currentPoints + puntos);
+            await prefs.setInt(keyPuntosAlt, currentPoints + puntos);
+          }
+        }
+
         _controller.clear();
         _confettiController.play();
-        await showDialog(
-          context: context,
-          barrierDismissible: true,
-          builder: (ctx) {
-            return _BonitaAnimacionDialog(
-              puntos: puntos > 0 ? puntos : 100,
-              mensaje: message,
-              brandTeal: _brandTeal,
-              brandDark: _brandDark,
-            );
-          },
-        );
+        if (context.mounted) {
+          await showDialog(
+            context: context,
+            barrierDismissible: true,
+            builder: (ctx) {
+              return _BonitaAnimacionDialog(
+                puntos: puntos > 0 ? puntos : 100,
+                brandTeal: _brandTeal,
+                brandDark: _brandDark,
+                mensaje: message,
+              );
+            },
+          );
+        }
       } else {
         String errorMessage = 'No se pudo canjear el código.';
         try {
@@ -302,29 +330,32 @@ class _CanjearPuntosPageState extends State<CanjearPuntosPage> {
           }
         } catch (_) {
           if (response.body.isNotEmpty) {
-            errorMessage = 'Error  20${response.statusCode}: ${response.body}';
+            errorMessage = 'Error ${response.statusCode}: ${response.body}';
           } else {
             errorMessage = 'Error ${response.statusCode} al canjear el código.';
           }
         }
 
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(errorMessage),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(errorMessage),
+            content: Text('Error al canjear el código: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al canjear el código: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
     }
   }
-
 }
 
 class _BonitaAnimacionDialog extends StatefulWidget {

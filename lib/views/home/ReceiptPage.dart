@@ -76,7 +76,8 @@ class _ReceiptPageState extends State<ReceiptPage> {
 
   // Datos de la empresa
   final String _razonSocial = 'SPLASH BUBBLE';
-  final String _direccionEmpresa = 'Calle. Sargento Lores #762, Iquitos, Loreto';
+  final String _direccionEmpresa =
+      'Calle. Sargento Lores #762, Iquitos, Loreto';
   final String _telefonoContacto = '+51 910 958 665';
 
   int _asInt(dynamic value) {
@@ -192,8 +193,9 @@ class _ReceiptPageState extends State<ReceiptPage> {
 
     // Acumular puntos por compra: 1 punto por cada sol de6l total
     final String? keyPuntos = user != null ? 'puntos_${user.uid}' : null;
-    final int puntosActuales =
-        keyPuntos != null ? (prefs.getInt(keyPuntos) ?? 0) : 0;
+    final int puntosActuales = keyPuntos != null
+        ? (prefs.getInt(keyPuntos) ?? 0)
+        : 0;
     final int puntosGanados = total.floor();
     if (puntosGanados > 0 && keyPuntos != null) {
       await prefs.setInt(keyPuntos, puntosActuales + puntosGanados);
@@ -205,7 +207,7 @@ class _ReceiptPageState extends State<ReceiptPage> {
 
   Future<void> _initNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+        AndroidInitializationSettings('ic_notification');
 
     const InitializationSettings initializationSettings =
         InitializationSettings(android: initializationSettingsAndroid);
@@ -220,10 +222,14 @@ class _ReceiptPageState extends State<ReceiptPage> {
     );
 
     // Si la app estaba cerrada y se abrió desde la notificación, abrir el PDF.
-    final details = await _notificationsPlugin.getNotificationAppLaunchDetails();
-    final didLaunchFromNotification = details?.didNotificationLaunchApp ?? false;
+    final details = await _notificationsPlugin
+        .getNotificationAppLaunchDetails();
+    final didLaunchFromNotification =
+        details?.didNotificationLaunchApp ?? false;
     final payload = details?.notificationResponse?.payload;
-    if (didLaunchFromNotification && payload != null && payload.trim().isNotEmpty) {
+    if (didLaunchFromNotification &&
+        payload != null &&
+        payload.trim().isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _openPdf(payload);
       });
@@ -277,9 +283,9 @@ class _ReceiptPageState extends State<ReceiptPage> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo abrir el PDF: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo abrir el PDF: $e')));
     }
   }
 
@@ -390,8 +396,9 @@ class _ReceiptPageState extends State<ReceiptPage> {
                 final List<dynamic> rawToppings = (item['toppings'] is List)
                     ? item['toppings']
                     : [];
-                final String toppingsText =
-                    _formatToppingsForUi(rawToppings).trim();
+                final String toppingsText = _formatToppingsForUi(
+                  rawToppings,
+                ).trim();
                 final List<String> details = [
                   if (size.isNotEmpty) size,
                   if (ice.isNotEmpty) ice,
@@ -569,9 +576,9 @@ class _ReceiptPageState extends State<ReceiptPage> {
       final message = (e is MissingPluginException)
           ? 'Tu app necesita reiniciarse para activar Descargas. Detén la app y ejecútala de nuevo.'
           : 'Error al descargar PDF.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -811,8 +818,9 @@ class _ReceiptPageState extends State<ReceiptPage> {
                         final String ice = item['ice'] ?? '';
                         final List<dynamic> rawToppings =
                             (item['toppings'] is List) ? item['toppings'] : [];
-                        final String toppingsText =
-                            _formatToppingsForUi(rawToppings).trim();
+                        final String toppingsText = _formatToppingsForUi(
+                          rawToppings,
+                        ).trim();
 
                         final List<String> details = [
                           if (size.isNotEmpty) size,
@@ -914,7 +922,6 @@ class _ReceiptPageState extends State<ReceiptPage> {
                         ),
 
                       const SizedBox(height: 16),
-
                     ],
                   ),
                 ),

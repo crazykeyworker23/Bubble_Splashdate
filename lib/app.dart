@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'constants/colors.dart';
 import 'routes/app_routes.dart';
 import 'controllers/cart_controller.dart';
 import 'utils/route_observer.dart';
@@ -11,6 +9,7 @@ import 'utils/globals.dart';
 
 import 'views/login/login_page.dart';
 import 'views/login/home_page.dart';
+import 'services/user_info_service.dart';
 
 class SessionGate extends StatefulWidget {
   const SessionGate({super.key});
@@ -26,12 +25,6 @@ class _SessionGateState extends State<SessionGate> {
   void initState() {
     super.initState();
     _startupFuture = _bootstrapAndReadSession();
-
-    // En cuanto Flutter pinta el primer frame, quitamos el splash nativo
-    // para que se vea el splash animado de la app.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      FlutterNativeSplash.remove();
-    });
   }
 
   Future<bool> _readIsLoggedIn() async {
@@ -56,7 +49,15 @@ class _SessionGateState extends State<SessionGate> {
   /// y luego lee el estado de sesión.
   Future<bool> _bootstrapAndReadSession() async {
     await initializeAppServices();
-    return _readIsLoggedIn();
+    final bool loggedIn = await _readIsLoggedIn();
+    if (loggedIn) {
+      // Sincronizar sucursal en background para cuentas ya iniciadas
+      UserInfoService.ensureUserHasServiceId().catchError((e) {
+        print('⚠️ Error al asegurar sucursal en inicio: $e');
+      });
+    }
+
+    return loggedIn;
   }
 
   @override
@@ -65,8 +66,8 @@ class _SessionGateState extends State<SessionGate> {
       future: _startupFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          // Mientras se resuelve la sesión mostramos un pequeño splash
-          // con el logo y puntos de carga animados.
+          // Mientras se resuelve la sesión e inicializan servicios,
+          // mostramos nuestro splash interno animado.
           return const _SessionSplashLoading();
         }
 

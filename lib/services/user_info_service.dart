@@ -31,4 +31,55 @@ class UserInfoService {
     }
     return null;
   }
+
+  /// Verifica si el usuario autenticado tiene sucursal asociada (`srv_int_id` nula o 0).
+  /// De ser así, le asigna la sucursal por defecto (`srv_int_id: 1`) mediante PATCH.
+  static Future<void> ensureUserHasServiceId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token') ?? '';
+      if (token.isEmpty) return;
+
+      final url = BackendConfig.api('auth/me/');
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body) as Map<String, dynamic>;
+        final userId = data['use_int_id'];
+        final srvId = data['srv_int_id'];
+
+        if (userId != null && (srvId == null || srvId == 0)) {
+          print('🔗 Usuario $userId no tiene sucursal asociada. Vinculando a sucursal 1...');
+          final patchUrl = BackendConfig.api('auth/users/$userId/');
+          final patchRes = await http.patch(
+            patchUrl,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode({'srv_int_id': 1}),
+          );
+
+          if (patchRes.statusCode == 200 || patchRes.statusCode == 204) {
+            print('✅ srv_int_id actualizado exitosamente a 1 para el usuario $userId');
+          } else {
+            print('⚠️ Error al actualizar srv_int_id: ${patchRes.statusCode} ${patchRes.body}');
+          }
+        } else {
+          print('🔗 El usuario $userId ya tiene sucursal asociada: $srvId');
+        }
+      }
+    } catch (e) {
+      print('⚠️ Excepción en ensureUserHasServiceId: $e');
+    }
+  }
 }
+

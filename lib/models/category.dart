@@ -1,3 +1,4 @@
+import 'package:bubblesplash/constants/backend_config.dart';
 import 'product.dart';
 
 class Category {
@@ -44,13 +45,22 @@ class Category {
           final double price = double.tryParse(priceStr) ?? 0.0;
 
           // Algunos responses traen URL en `pro_txt_urlimagepath` y otros en `pro_txt_imageurl`.
-          final String image =
+          String image =
               ((item['pro_txt_urlimagepath'] ?? '')
                   .toString()
                   .trim()
                   .isNotEmpty)
               ? (item['pro_txt_urlimagepath'] ?? '').toString()
               : (item['pro_txt_imageurl'] ?? '').toString();
+
+          image = image.trim();
+          if (image.isNotEmpty &&
+              !image.startsWith('http') &&
+              !image.startsWith('data:image') &&
+              !image.startsWith('assets/') &&
+              !image.endsWith('.svg')) {
+            image = '${BackendConfig.baseUrl}bubblesplash/productos/img/$image';
+          }
 
           return Product(
             id: id,

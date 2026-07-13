@@ -11,6 +11,7 @@ import 'package:bubblesplash/services/auth_service.dart';
 import 'package:bubblesplash/constants/backend_config.dart';
 import 'menu_page.dart';
 import 'dart:ui';
+import 'package:bubblesplash/widgets/connection_error_dialog.dart';
 
 /// ===============================
 /// ✅ ICONO POR TIPO (GLOBAL)
@@ -632,10 +633,24 @@ class _BeneficiosPageState extends State<BeneficiosPage>
     } catch (e) {
       if (!mounted) return;
       if (!background) {
+        final errStr = e.toString().toLowerCase();
+        final isNetwork = errStr.contains('socketexception') ||
+            errStr.contains('failed host lookup') ||
+            errStr.contains('clientexception') ||
+            errStr.contains('handshake') ||
+            errStr.contains('network') ||
+            errStr.contains('connection');
+
         setState(() {
           _isLoadingOfertas = false;
-          _ofertasError = 'Error al cargar ofertas: $e';
+          _ofertasError = isNetwork
+              ? 'No se pudo conectar con el servidor. Por favor, comprueba tu conexión a Internet e intenta nuevamente.'
+              : 'Error al cargar ofertas: $e';
         });
+
+        if (isNetwork && mounted) {
+          showConnectionErrorDialog(context, onRetry: _onRefresh);
+        }
       }
     } finally {
       if (!mounted) return;
@@ -654,7 +669,7 @@ class _BeneficiosPageState extends State<BeneficiosPage>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
-      appBar: const CustomAppBar(title: 'Beneficios', tipo: ''),
+      appBar: const CustomAppBar(title: 'Beneficios', tipo: 'regalo'),
       body: SafeArea(
         bottom: true,
         child: LayoutBuilder(

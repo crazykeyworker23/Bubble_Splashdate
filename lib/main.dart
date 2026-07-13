@@ -1,7 +1,6 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import 'app.dart';
 
@@ -9,11 +8,7 @@ import 'app.dart';
 // MAIN PRINCIPAL (solo configuración mínima y arranque de la app)
 // ------------------------------------------------------
 Future<void> main() async {
-  final WidgetsBinding widgetsBinding =
-      WidgetsFlutterBinding.ensureInitialized();
-
-  // Mantener el splash nativo hasta que Flutter pinte el primer frame.
-  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+  WidgetsFlutterBinding.ensureInitialized();
 
   // Limitar orientación vertical
   await SystemChrome.setPreferredOrientations([

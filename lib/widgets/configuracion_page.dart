@@ -1,36 +1,59 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:bubblesplash/services/session_manager.dart';
 
 import 'mi_perfil_page.dart';
 import 'seguridad_page.dart';
 import 'terminos_page.dart';
 import 'eliminar_cuenta_page.dart';
 import 'canjear_puntos_page.dart';
+import 'in_app_notification_banner.dart';
 
 class ConfiguracionPage extends StatelessWidget {
   const ConfiguracionPage({super.key});
 
   Future<void> logout(BuildContext context) async {
-    final prefs = await SharedPreferences.getInstance();
-    bool remember = prefs.getBool('rememberMe') ?? false;
+    // Mostrar el spinloader premium de cerrando sesión
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (loadingCtx) {
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            content: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1B6F81)),
+                  ),
+                  SizedBox(height: 20),
+                  Text(
+                    'Cerrando sesión...',
+                    style: TextStyle(
+                      color: Color(0xFF062B35),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
 
-    await prefs.setBool('isLoggedIn', false);
-    await prefs.remove('fcm_token');
+    // Pequeña espera para una animación de feedback visual fluida (500ms)
+    await Future.delayed(const Duration(milliseconds: 500));
 
-    // Limpia completamente la sesión para que el saldo sea por usuario
-    await prefs.remove('access_token');
-    await prefs.remove('refresh_token');
-    await prefs.remove('google_id_token');
-    await prefs.remove('google_name');
-    await prefs.remove('google_email');
-    await prefs.remove('google_photo');
-    await prefs.remove('google_id');
-
-    if (!remember) {
-      await prefs.remove('savedEmail');
-    }
-
-    Navigator.pushReplacementNamed(context, '/login');
+    // Ejecutar el logout centralizado que limpiará todo y redirigirá al login
+    await SessionManager.forceLogout();
   }
 
   @override
@@ -155,6 +178,17 @@ class ConfiguracionPage extends StatelessWidget {
                 context,
                 MaterialPageRoute(builder: (_) => const CanjearPuntosPage()),
               ),
+            ),
+            _divider(),
+            _opcionItem(
+              icon: Icons.notifications_active_outlined,
+              text: 'Simular notificación',
+              onTap: () {
+                InAppNotificationBanner.show(
+                  title: '¡Tu Bubble Tea está listo! 🥤',
+                  body: 'Tu pedido #48291 ha sido preparado y está listo para retirar en la barra.',
+                );
+              },
             ),
             _divider(),
             _opcionItem(

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:bubblesplash/services/session_manager.dart';
 import 'configuracion_page.dart';
 
 class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
@@ -22,20 +24,53 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
           child: Row(
             children: [
-              // 🔹 Icono de usuario
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.2),
-                  border: Border.all(color: Colors.white, width: 2),
-                ),
-                child: const Icon(
-                  Icons.person,
-                  color: Colors.white,
-                  size: 35,
-                ),
+              // 🔹 Icono de usuario dinámico
+              FutureBuilder<String?>(
+                future: SessionManager.getAvatar(),
+                builder: (context, snapshot) {
+                  final avatarUrl = snapshot.data;
+                  final hasImage = avatarUrl != null &&
+                      avatarUrl.trim().isNotEmpty &&
+                      avatarUrl.startsWith('http');
+
+                  return Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withOpacity(0.2),
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: ClipOval(
+                      child: hasImage
+                          ? CachedNetworkImage(
+                              imageUrl: avatarUrl.trim(),
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) => const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: Padding(
+                                  padding: EdgeInsets.all(16.0),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                              errorWidget: (context, url, error) => const Icon(
+                                Icons.person,
+                                color: Colors.white,
+                                size: 35,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.person,
+                              color: Colors.white,
+                              size: 35,
+                            ),
+                    ),
+                  );
+                },
               ),
 
               const SizedBox(width: 15),

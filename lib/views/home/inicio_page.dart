@@ -15,6 +15,9 @@ import 'package:bubblesplash/services/session_manager.dart';
 import 'package:bubblesplash/services/auth_service.dart';
 import 'package:bubblesplash/constants/backend_config.dart';
 import 'package:bubblesplash/routes/app_routes.dart';
+import 'package:bubblesplash/widgets/connection_error_dialog.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:bubblesplash/widgets/canjear_puntos_page.dart';
 
 import 'CartPage.dart';
 
@@ -36,14 +39,14 @@ class _HorizontalCarouselMarcasAliadasState extends State<_HorizontalCarouselMar
     {'asset': 'assets/bubble.png', 'label': 'Splash Bubble'},
     {'asset': 'assets/dateanddo.png', 'label': 'Date & Do'},
     {'asset': 'assets/finhold.png', 'label': 'Finhold'},
-    {'asset': 'assets/fintbot.png', 'label': 'Fintbot'},
-    {'asset': 'assets/fintour.png', 'label': 'Fintour'},
-    {'asset': 'assets/alini.png', 'label': 'Alini'},
-    {'asset': 'assets/fintpay.png', 'label': 'Fintpay'},
+    {'asset': 'assets/fintbot.jpg', 'label': 'Fintbot'},
+    {'asset': 'assets/fintour.jpg', 'label': 'Fintour'},
+    {'asset': 'assets/alini.jpg', 'label': 'Alini'},
+    {'asset': 'assets/fintpay.jpg', 'label': 'Fintpay'},
     {'asset': 'assets/loggia.png', 'label': 'Loggia'},
-    {'asset': 'assets/losthorde.png', 'label': 'Lost Horde'},
+    {'asset': 'assets/losthorde.jpg', 'label': 'Lost Horde'},
     {'asset': 'assets/pasa.jpeg', 'label': 'Pasa'},
-    {'asset': 'assets/ttvfinared.png', 'label': 'TV Finared'},
+    {'asset': 'assets/ttvfinared.jpg', 'label': 'TV Finared'},
     {'asset': 'assets/xambio.png', 'label': 'Xambio'},
   ];
   late final List<Map<String, String>> _items;
@@ -239,6 +242,7 @@ class InicioPage extends StatefulWidget {
 }
 
 class _InicioPageState extends State<InicioPage> {
+  static const String _bannersCacheKey = 'home_banners_cache_v1';
   String _displayName = '';
   bool _isLoadingHome = false;
   String? _homeError;
@@ -431,13 +435,40 @@ class _InicioPageState extends State<InicioPage> {
   // HOME DATA
   // =============================
   Future<void> _loadHomeData() async {
-    setState(() {
-      _isLoadingHome = true;
-      _homeError = null;
-    });
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString(_bannersCacheKey);
+
+    if (cached != null && cached.trim().isNotEmpty) {
+      try {
+        final Map<String, dynamic> data =
+            jsonDecode(cached) as Map<String, dynamic>;
+        final List<dynamic> bannersJson =
+            (data['banners'] as List<dynamic>?) ?? <dynamic>[];
+        final banners = bannersJson
+            .whereType<Map<String, dynamic>>()
+            .map(_HomeBanner.fromJson)
+            .where((b) => b.status.toUpperCase() == 'ACTIVO')
+            .toList();
+
+        if (mounted) {
+          setState(() {
+            _banners = banners;
+            _homeError = null;
+          });
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error al cargar banners desde caché: $e');
+      }
+    }
+
+    if (_banners.isEmpty) {
+      setState(() {
+        _isLoadingHome = true;
+        _homeError = null;
+      });
+    }
 
     try {
-      final prefs = await SharedPreferences.getInstance();
       final rawToken = prefs.getString('access_token');
 
       if (rawToken == null || rawToken.trim().isEmpty) {
@@ -483,7 +514,12 @@ class _InicioPageState extends State<InicioPage> {
             .where((b) => b.status.toUpperCase() == 'ACTIVO')
             .toList();
 
-        setState(() => _banners = banners);
+        await prefs.setString(_bannersCacheKey, response.body);
+
+        setState(() {
+          _banners = banners;
+          _homeError = null;
+        });
 
         // ✅ Precache + prefetch (carga más rápida)
         for (final b in banners) {
@@ -498,29 +534,51 @@ class _InicioPageState extends State<InicioPage> {
           () => _homeError = 'Sesión expirada. Inicia sesión nuevamente.',
         );
       } else {
-        setState(
-          () => _homeError =
-              'Error cargando home (${response.statusCode}). Intenta nuevamente.',
-        );
+        if (_banners.isEmpty) {
+          setState(
+            () => _homeError =
+                'Error cargando home (${response.statusCode}). Intenta nuevamente.',
+          );
+        }
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _homeError = 'Ocurrió un error cargando home: $e');
+      final errStr = e.toString().toLowerCase();
+      if (errStr.contains('socketexception') ||
+          errStr.contains('failed host lookup') ||
+          errStr.contains('clientexception') ||
+          errStr.contains('handshake') ||
+          errStr.contains('network') ||
+          errStr.contains('connection')) {
+        if (_banners.isEmpty) {
+          setState(() {
+            _homeError =
+                'No se pudo conectar con el servidor. Por favor, comprueba tu conexión a Internet e intenta nuevamente.';
+          });
+        }
+        if (mounted) {
+          showConnectionErrorDialog(context, onRetry: _refreshAll);
+        }
+      } else {
+        if (_banners.isEmpty) {
+          setState(() => _homeError = 'Ocurrió un error cargando home: $e');
+        }
+      }
     } finally {
       if (!mounted) return;
       setState(() => _isLoadingHome = false);
     }
   }
 
+  Future<void> _refreshAll() async {
+    await _loadUserName();
+    await _loadHomeData();
+    await _loadCartCount();
+  }
+
   @override
   Widget build(BuildContext context) {
     const bg = Color(0xFFF6F7FB);
-
-    Future<void> _refreshAll() async {
-      await _loadUserName();
-      await _loadHomeData();
-      await _loadCartCount();
-    }
 
     return Scaffold(
       backgroundColor: bg,
@@ -589,11 +647,29 @@ class _InicioPageState extends State<InicioPage> {
 
                       const SliverToBoxAdapter(child: SizedBox(height: 14)),
 
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _QuickActionsRow(onTabChange: widget.onTabChange),
+                        ),
+                      ),
+
+                      const SliverToBoxAdapter(child: SizedBox(height: 14)),
+
+                      SliverToBoxAdapter(
+                        child: _buildInviteCard(context),
+                      ),
+
+                      const SliverToBoxAdapter(child: SizedBox(height: 14)),
+
                       if (_homeError != null)
                         SliverToBoxAdapter(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: _ErrorCard(text: _homeError!),
+                            child: _ErrorCard(
+                              text: _homeError!,
+                              onRetry: _refreshAll,
+                            ),
                           ),
                         ),
 
@@ -771,6 +847,136 @@ class _InicioPageState extends State<InicioPage> {
       ),
     );
   }
+
+  Widget _buildInviteCard(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE5EEF5), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1B6F81).withOpacity(0.08),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.card_giftcard_rounded,
+                  color: Color(0xFF1B6F81),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Comparte Beneficios",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF0F3E47),
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      "Tus amigos obtienen puntos de regalo",
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: Colors.black54,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            "Comparte el enlace con tus amigos. Al descargar la app, podrán ganar puntos de regalo ingresando el código de invitación que encontrarán en los banners de novedades.",
+            style: TextStyle(
+              fontSize: 13,
+              color: Color(0xFF64748B),
+              height: 1.35,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    SharePlus.instance.share(
+                      ShareParams(
+                        text: '¡Hola! Te invito a descargar Splash Bubble para disfrutar de las mejores bebidas. Al registrarte, busca el código promocional en los banners de novedades para obtener tus primeros puntos de regalo. Descarga la app aquí: https://play.google.com/store/apps/details?id=com.finatech.bubblesplash',
+                        subject: '¡Descarga Splash Bubble!',
+                      ),
+                    );
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF1B6F81), width: 1.2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  icon: const Icon(Icons.share_rounded, size: 16, color: Color(0xFF1B6F81)),
+                  label: const Text(
+                    "Compartir Enlace",
+                    style: TextStyle(color: Color(0xFF1B6F81), fontWeight: FontWeight.bold, fontSize: 13.5),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const CanjearPuntosPage()),
+                    ).then((_) {
+                      _refreshAll();
+                    });
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1B6F81),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  icon: const Icon(Icons.confirmation_num_rounded, size: 16, color: Colors.white),
+                  label: const Text(
+                    "Ingresar Código",
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// ===============================
@@ -852,6 +1058,143 @@ class _PremiumHeroWelcome extends StatelessWidget {
   }
 }
 
+class _QuickActionsRow extends StatelessWidget {
+  final void Function(int)? onTabChange;
+
+  const _QuickActionsRow({this.onTabChange});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildActionItem(
+            context: context,
+            icon: Icons.local_drink_rounded,
+            label: 'Ver Menú',
+            color: const Color(0xFF1B6F81),
+            onTap: () {
+              if (onTabChange != null) {
+                onTabChange!(2); // Pestaña de menú (index 2)
+              }
+            },
+          ),
+          _buildActionItem(
+            context: context,
+            icon: Icons.card_giftcard_rounded,
+            label: 'Cupones',
+            color: const Color(0xFF1B6F81),
+            onTap: () {
+              if (onTabChange != null) {
+                onTabChange!(3); // Pestaña de beneficios (index 3)
+              }
+            },
+          ),
+          // _buildActionItem(
+          //   context: context,
+          //   icon: Icons.qr_code_scanner_rounded,
+          //   label: 'Escanear QR',
+          //   color: Colors.grey.shade400,
+          //   isLocked: true,
+          //   onTap: () => _showComingSoon(context, 'Escanear QR'),
+          // ),
+          // _buildActionItem(
+          //   context: context,
+          //   icon: Icons.account_balance_wallet_rounded,
+          //   label: 'Recargar',
+          //   color: Colors.grey.shade400,
+          //   isLocked: true,
+          //   onTap: () => _showComingSoon(context, 'Recargar'),
+          // ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionItem({
+    required BuildContext context,
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+    bool isLocked = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: isLocked ? Colors.grey.shade100 : color.withOpacity(0.08),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isLocked ? Colors.grey.shade200 : color.withOpacity(0.15),
+                  width: 1.2,
+                ),
+              ),
+              child: Icon(
+                icon,
+                color: isLocked ? Colors.grey.shade500 : color,
+                size: 24,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: isLocked ? Colors.grey.shade500 : const Color(0xFF111827),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // void _showComingSoon(BuildContext context, String featureName) {
+  //   ScaffoldMessenger.of(context).clearSnackBars();
+  //   ScaffoldMessenger.of(context).showSnackBar(
+  //     SnackBar(
+  //       content: Row(
+  //         children: [
+  //           const Icon(Icons.info_outline, color: Colors.white),
+  //           const SizedBox(width: 8),
+  //           Text(
+  //             '¡$featureName estará disponible próximamente!',
+  //             style: const TextStyle(fontWeight: FontWeight.w700),
+  //           ),
+  //         ],
+  //       ),
+  //       backgroundColor: const Color(0xFF1B6F81),
+  //       behavior: SnackBarBehavior.floating,
+  //       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  //       duration: const Duration(seconds: 2),
+  //     ),
+  //   );
+  // }
+}
+
 class _SectionHeader extends StatelessWidget {
   final String title;
   final String? subtitle;
@@ -927,30 +1270,103 @@ class _SmallTag extends StatelessWidget {
 
 class _ErrorCard extends StatelessWidget {
   final String text;
-  const _ErrorCard({required this.text});
+  final VoidCallback? onRetry;
+  const _ErrorCard({required this.text, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
+    final isSessionOrNetworkError = text.toLowerCase().contains('sesión') || 
+                                    text.toLowerCase().contains('token') ||
+                                    text.toLowerCase().contains('401') ||
+                                    text.toLowerCase().contains('unauthorized') ||
+                                    text.toLowerCase().contains('conexión') ||
+                                    text.toLowerCase().contains('internet') ||
+                                    text.toLowerCase().contains('servidor');
+
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.redAccent.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.redAccent.withOpacity(0.20)),
+        color: Colors.redAccent.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.redAccent.withOpacity(0.18)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline_rounded, color: Colors.redAccent),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(
-                color: Colors.redAccent,
-                fontWeight: FontWeight.w700,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                    color: Colors.redAccent,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
+          if (isSessionOrNetworkError || onRetry != null) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                if (onRetry != null)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ElevatedButton.icon(
+                        onPressed: onRetry,
+                        icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
+                        label: const Text(
+                          'Reintentar',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF1B6F81),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          elevation: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (isSessionOrNetworkError)
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await SessionManager.forceLogout();
+                      },
+                      icon: const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 18),
+                      label: const Text(
+                        'Cerrar sesión',
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.redAccent, width: 1.2),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -1008,7 +1424,6 @@ class _PremiumBannerCarousel extends StatefulWidget {
 
 class _PremiumBannerCarouselState extends State<_PremiumBannerCarousel> {
   late final PageController _controller;
-  double _page = 0.0;
 
   int _index = 0;
   bool _userInteracting = false;
@@ -1020,9 +1435,10 @@ class _PremiumBannerCarouselState extends State<_PremiumBannerCarousel> {
     _controller = PageController(viewportFraction: 0.88);
 
     _controller.addListener(() {
-      final p = _controller.page ?? 0.0;
-      setState(() => _page = p);
-      _index = p.round().clamp(0, (widget.banners.length - 1).clamp(0, 9999));
+      if (_controller.hasClients && _controller.position.hasContentDimensions) {
+        final p = _controller.page ?? 0.0;
+        _index = p.round().clamp(0, (widget.banners.length - 1).clamp(0, 9999));
+      }
     });
 
     _startAutoPlay();
@@ -1089,20 +1505,13 @@ class _PremiumBannerCarouselState extends State<_PremiumBannerCarousel> {
                 itemCount: widget.banners.length,
                 itemBuilder: (context, index) {
                   final banner = widget.banners[index];
-                  final diff = (_page - index).abs();
-                  final scale = (1 - (diff * 0.06)).clamp(0.90, 1.0);
-                  final opacity = (1 - (diff * 0.25)).clamp(0.55, 1.0);
 
-                  return Opacity(
-                    opacity: opacity,
-                    child: Transform.scale(
-                      scale: scale,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: _PremiumBannerCard(
-                          banner: banner,
-                          onOpenGallery: () => widget.onOpenGallery(index),
-                        ),
+                  return _KeepAliveWrapper(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: _PremiumBannerCard(
+                        banner: banner,
+                        onOpenGallery: () => widget.onOpenGallery(index),
                       ),
                     ),
                   );
@@ -1112,25 +1521,53 @@ class _PremiumBannerCarouselState extends State<_PremiumBannerCarousel> {
           ),
         ),
         const SizedBox(height: 10),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(widget.banners.length, (i) {
-            final selected = (_page.round() == i);
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              width: selected ? 18 : 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: selected ? primary : Colors.black26,
-                borderRadius: BorderRadius.circular(12),
-              ),
+        AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) {
+            double page = 0.0;
+            if (_controller.hasClients && _controller.position.hasContentDimensions) {
+              page = _controller.page ?? 0.0;
+            }
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(widget.banners.length, (i) {
+                final selected = (page.round() == i);
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  width: selected ? 18 : 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: selected ? primary : Colors.black26,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                );
+              }),
             );
-          }),
+          },
         ),
       ],
     );
   }
+}
+
+class _KeepAliveWrapper extends StatefulWidget {
+  final Widget child;
+  const _KeepAliveWrapper({required this.child});
+
+  @override
+  State<_KeepAliveWrapper> createState() => _KeepAliveWrapperState();
+}
+
+class _KeepAliveWrapperState extends State<_KeepAliveWrapper> with AutomaticKeepAliveClientMixin {
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+
+  @override
+  bool get wantKeepAlive => true;
 }
 
 class _PremiumBannerCard extends StatelessWidget {
@@ -1149,90 +1586,6 @@ class _PremiumBannerCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             _NetworkImagePremium(url: banner.imageUrl, showFull: true),
-
-            // overlay suave (amigable)
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withOpacity(0.05),
-                      Colors.black.withOpacity(0.22),
-                      Colors.black.withOpacity(0.78),
-                    ],
-                    stops: const [0.0, 0.60, 1.0],
-                  ),
-                ),
-              ),
-            ),
-
-            // ✅ texto completo con scroll (si es largo)
-            Positioned(
-              left: 14,
-              right: 14,
-              bottom: 14,
-              child: Container(
-                constraints: const BoxConstraints(maxHeight: 150),
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.14),
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: Colors.white.withOpacity(0.18)),
-                ),
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        banner.title.isNotEmpty
-                            ? banner.title
-                            : "Promoción especial",
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 18,
-                          height: 1.25,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        banner.subtitle.isNotEmpty
-                            ? banner.subtitle
-                            : "Descubre lo nuevo en Splash Bubble",
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.92),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                          height: 1.35,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.open_in_full_rounded,
-                            size: 16,
-                            color: Colors.white.withOpacity(0.9),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            "Toca para ampliar",
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.90),
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
           ],
         ),
       ),
@@ -1427,7 +1780,7 @@ class _HorizontalCarouselNovedadesState
   bool _isUserScrolling = false;
 
   static const List<Map<String, String>> _baseItems = [
-    {'asset': 'assets/fimos.png', 'label': 'Fimo'},
+    {'asset': 'assets/fimos.jpg', 'label': 'Fimo'},
     {'asset': 'assets/bubble.png', 'label': 'Splash Bubble'},
 
   ];
@@ -1747,15 +2100,15 @@ class _NetworkImagePremium extends StatelessWidget {
 
     if (u.isEmpty) return placeholder;
 
-    final base64RegExp = RegExp(
-      r'^(data:image\/[^;]+;base64,)?([A-Za-z0-9+\/\r\n]+={0,2})',
-    );
+    // Detectar si realmente es base64 y no un URL largo de red
+    final bool isBase64 = u.startsWith('data:image') ||
+        (!u.startsWith('http') && !u.startsWith('/') && !u.startsWith('assets/') && u.length > 100);
 
     ImageProvider provider;
-    if (base64RegExp.hasMatch(u) && u.length > 100) {
+    if (isBase64) {
       try {
         final base64Str = u.contains(',') ? u.split(',').last : u;
-        final bytes = base64Decode(base64Str);
+        final bytes = base64Decode(base64Str.replaceAll('\n', '').replaceAll('\r', '').trim());
         provider = MemoryImage(bytes);
       } catch (_) {
         return placeholder;
@@ -1768,30 +2121,78 @@ class _NetworkImagePremium extends StatelessWidget {
     }
 
     if (showFull) {
-      // ✅ imagen completa con blur premium detrás
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          Image(
-            image: provider,
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.low,
-          ),
-          Positioned.fill(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-              child: Container(color: Colors.black.withOpacity(0.16)),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(10),
-            child: Image(
+      if (isBase64) {
+        // Para imágenes en memoria (base64) no hay tiempo de red
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Image(
               image: provider,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.medium,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.low,
             ),
+            Positioned.fill(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                child: Container(color: Colors.black.withOpacity(0.16)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Image(
+                image: provider,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.medium,
+              ),
+            ),
+          ],
+        );
+      }
+
+      // Para red, cargamos con CachedNetworkImage para tener shimmer de carga
+      return CachedNetworkImage(
+        imageUrl: u,
+        cacheManager: kBannerCacheManager,
+        fadeInDuration: Duration.zero,
+        fadeOutDuration: Duration.zero,
+        memCacheWidth: small ? 420 : 1000,
+        memCacheHeight: small ? 420 : 600,
+        placeholder: (_, __) => placeholder,
+        errorWidget: (_, __, ___) => Container(
+          color: const Color(0xFFE9EEF0),
+          alignment: Alignment.center,
+          child: const Icon(
+            Icons.broken_image_rounded,
+            color: Colors.black38,
+            size: 42,
           ),
-        ],
+        ),
+        imageBuilder: (context, imageProvider) {
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Image(
+                image: imageProvider,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.low,
+              ),
+              Positioned.fill(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                  child: Container(color: Colors.black.withOpacity(0.16)),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(10),
+                child: Image(
+                  image: imageProvider,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.medium,
+                ),
+              ),
+            ],
+          );
+        },
       );
     }
 
@@ -1801,7 +2202,7 @@ class _NetworkImagePremium extends StatelessWidget {
       imageUrl: u,
       cacheManager: kBannerCacheManager,
       fit: BoxFit.cover,
-      fadeInDuration: const Duration(milliseconds: 80),
+      fadeInDuration: Duration.zero,
       fadeOutDuration: Duration.zero,
       memCacheWidth: small ? 420 : 1200,
       memCacheHeight: small ? 420 : 800,

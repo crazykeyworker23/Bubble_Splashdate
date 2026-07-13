@@ -14,14 +14,6 @@ class FcmService {
   static Future<void> initAndSendTokenIfPossible() async {
     try {
       final FirebaseMessaging messaging = FirebaseMessaging.instance;
-      // 🔄 Forzar renovación del token FCM en cada llamada
-      try {
-        await messaging.deleteToken();
-        print('🔁 Token FCM anterior eliminado (FcmService)');
-      } catch (e) {
-        print('⚠️ No se pudo eliminar token FCM anterior (FcmService): $e');
-      }
-
       final String? token = await messaging.getToken();
 
       print('🔑 FCM Token desde FcmService: $token');

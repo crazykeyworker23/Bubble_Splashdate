@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http_pkg;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_service.dart';
@@ -11,16 +12,22 @@ class AppHttp {
   /// Verifica si el token existe y está por expirar (faltan 60 segundos o menos).
   /// Si es así, intenta refrescarlo proactivamente.
   static Future<void> _ensureValidToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('access_token');
-    if (token != null && token.isNotEmpty) {
-      if (_isTokenExpiring(token)) {
-        bool refreshed = await AuthService.refreshToken();
-        if (!refreshed) {
-          // Si el refresh falló, forzamos logout inmediatamente
-          await SessionManager.forceLogout();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token');
+      if (token != null && token.isNotEmpty) {
+        if (_isTokenExpiring(token)) {
+          bool refreshed = await AuthService.refreshToken();
+          if (!refreshed) {
+            // Si el refresh falló (rechazo explícito del token de refresco), forzamos logout inmediatamente
+            debugPrint('⚠️ Refresco proactivo falló (token rechazado/expirado). Cerrando sesión...');
+            await SessionManager.forceLogout();
+          }
         }
       }
+    } catch (e) {
+      // Si ocurre un error de red o servidor temporal, no cerramos sesión.
+      debugPrint('⚠️ Error de red al intentar refrescar token proactivamente: $e');
     }
   }
 
@@ -53,13 +60,21 @@ class AppHttp {
     Future<http_pkg.Response> Function() retryRequest,
   ) async {
     if (response.statusCode == 401) {
-      bool refreshed = await AuthService.refreshToken();
-      if (refreshed) {
-        // Reintentamos la petición original
-        return await retryRequest();
-      } else {
-        // Si no se puede refrescar, sesión vencida -> Auto Logout
-        await SessionManager.forceLogout();
+      try {
+        bool refreshed = await AuthService.refreshToken();
+        if (refreshed) {
+          // Reintentamos la petición original
+          return await retryRequest();
+        } else {
+          // Si no se puede refrescar (rechazo explícito del token de refresco), sesión vencida -> Auto Logout
+          debugPrint('⚠️ Refresco reactivo tras 401 falló (token rechazado/expirado). Cerrando sesión...');
+          await SessionManager.forceLogout();
+        }
+      } catch (e) {
+        // Si hay un error de red/servidor durante el refresco, no cerramos sesión.
+        // Retornamos la respuesta original 401 para que falle la petición normal sin desloguear.
+        debugPrint('⚠️ Error de red/servidor al refrescar token tras 401: $e');
+        return response;
       }
     }
     return response;

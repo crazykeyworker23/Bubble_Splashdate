@@ -2,14 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' hide Category;
 import 'package:bubblesplash/services/app_http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import 'CartPage.dart';
 import 'package:bubblesplash/utils/route_observer.dart';
 import 'package:bubblesplash/services/auth_service.dart';
 import 'package:bubblesplash/constants/backend_config.dart';
 import '../../constants/api_constants.dart';
+import 'package:bubblesplash/widgets/connection_error_dialog.dart';
 
 import 'package:bubblesplash/models/category.dart';
 import 'package:bubblesplash/models/product.dart';
@@ -199,7 +202,8 @@ class MenuPage extends StatefulWidget {
 // CustomAppBar simple
 // --------------------
 class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const CustomAppBar({super.key});
+  final VoidCallback? onHelpPressed;
+  const CustomAppBar({super.key, this.onHelpPressed});
 
   @override
   Size get preferredSize => const Size.fromHeight(110);
@@ -237,43 +241,57 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
                   border: Border.all(color: Colors.white.withOpacity(0.18)),
                 ),
                 child: const Icon(
-                  Icons.local_cafe_rounded,
+                  Icons.local_drink_rounded,
                   color: Colors.white,
                   size: 24,
                 ),
               ),
               const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      ' SPLASH BUBBLE',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.0,
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Text(
+                        ' SPLASH BUBBLE',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.0,
+                        ),
                       ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'BEBIDAS ESPECIALES',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.6,
+                      SizedBox(height: 2),
+                      Text(
+                        'BEBIDAS ESPECIALES',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.6,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
+              if (onHelpPressed != null) ...[
+                IconButton(
+                  icon: const Icon(Icons.help_outline_rounded, color: Colors.white, size: 24),
+                  onPressed: onHelpPressed,
+                  tooltip: 'Ver guía de navegación',
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                ),
+              ],
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -316,7 +334,6 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
 // --------------------
 class _MenuPageState extends State<MenuPage>
     with RouteAware, WidgetsBindingObserver {
-  Timer? _refreshTimer;
 
   List<Map<String, dynamic>> pedidos = [];
   bool _suppressNextReload = false;
@@ -332,6 +349,17 @@ class _MenuPageState extends State<MenuPage>
   bool _isFetchingCategories = false;
   String? _lastCategoriesBody;
 
+  int? _selectedCategoryId;
+  final ScrollController _scrollController = ScrollController();
+
+  final GlobalKey _carouselKey = GlobalKey();
+  final GlobalKey _categoryChipsKey = GlobalKey();
+  final GlobalKey _productListKey = GlobalKey();
+
+  bool _showInteractiveOnboarding = false;
+  int _currentOnboardingStep = 0;
+
+
   static const String _cartFabXFracKey = 'menu_cart_fab_x_frac';
   static const String _cartFabYFracKey = 'menu_cart_fab_y_frac';
   final GlobalKey _cartFabStackKey = GlobalKey();
@@ -346,21 +374,16 @@ class _MenuPageState extends State<MenuPage>
 
   static const String _categoriesCacheKey = 'menu_categories_cache';
   static const String _categoriesCacheTimeKey = 'menu_categories_cache_time';
-  static const Duration _cacheDuration = Duration(minutes: 5);
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+
     _cargarPedidosGuardados();
     _cargarCategorias();
     _loadCartFabPosition();
-
-    // ✅ refresco sano (no spamear cada 3s)
-    _refreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (mounted) _actualizarCategoriasDesdeApi(background: true);
-    });
   }
 
   @override
@@ -384,7 +407,7 @@ class _MenuPageState extends State<MenuPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     routeObserver.unsubscribe(this);
-    _refreshTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -549,43 +572,61 @@ class _MenuPageState extends State<MenuPage>
   // Carga categorías (cache + optimización)
   // --------------------
   Future<void> _cargarCategorias() async {
-    if (!mounted) return;
     final prefs = await SharedPreferences.getInstance();
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final lastCache = prefs.getInt(_categoriesCacheTimeKey) ?? 0;
-    final isCacheValid = (now - lastCache) < _cacheDuration.inMilliseconds;
+    if (!mounted) return;
     final cached = prefs.getString(_categoriesCacheKey);
+    final cacheTime = prefs.getInt(_categoriesCacheTimeKey) ?? 0;
+
+    bool hasCache = false;
+    bool isCacheValid = false;
 
     // Mostrar caché inmediatamente si existe
-    if (cached != null) {
-      final List<dynamic> data = jsonDecode(cached) as List<dynamic>;
-      final categories =
-          data
-              .whereType<Map<String, dynamic>>()
-              .map(Category.fromJson)
-              .where((c) => c.status.toUpperCase() == 'ACTIVO')
-              .where((c) => c.products.isNotEmpty)
-              .toList()
-            ..sort((a, b) => a.order.compareTo(b.order));
+    if (cached != null && cached.trim().isNotEmpty) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final cacheAge = now - cacheTime;
+      // Considerar la caché válida por 15 minutos (900,000 ms)
+      isCacheValid = cacheAge < 15 * 60 * 1000;
 
-      if (!mounted) return;
-      setState(() {
-        _categories = categories;
-        _isLoadingProducts = false;
-        _productsError = null;
-      });
+      try {
+        // Usar compute para no bloquear el hilo principal al decodificar y mapear el JSON grande
+        final categories = await compute(_parseCategoriesIsolate, cached);
 
-      // ✅ guarda last body para evitar reprocesado si es igual
-      _lastCategoriesBody = cached;
+        if (!mounted) return;
+        setState(() {
+          _categories = categories;
+          _isLoadingProducts = false;
+          _productsError = null;
+          if (_selectedCategoryId == null && _categories.isNotEmpty) {
+            _selectedCategoryId = _categories.first.id;
+          }
+        });
+        _precacheProductImages(categories);
+        _checkOnboarding();
+
+        // ✅ guarda last body para evitar reprocesado si es igual
+        _lastCategoriesBody = cached;
+        hasCache = true;
+      } catch (e) {
+        debugPrint('⚠️ Error al cargar categorías desde caché: $e');
+        // Si el caché está dañado, lo limpiamos para evitar bucles de fallos
+        await prefs.remove(_categoriesCacheKey);
+        await prefs.remove(_categoriesCacheTimeKey);
+      }
     }
 
-    // Si el caché es válido, refresca en background
-    if (isCacheValid && cached != null) {
+    // Si la caché existe y sigue siendo válida, no llamamos a la API en absoluto
+    if (hasCache && isCacheValid) {
+      debugPrint('⚡ Caché de productos válida (menos de 15 minutos). No se requiere actualización de red.');
+      return;
+    }
+
+    // Si ya mostramos datos del caché pero expiró la validez, actualizamos en segundo plano sin bloquear la pantalla
+    if (hasCache) {
       _actualizarCategoriasDesdeApi(background: true);
       return;
     }
 
-    // Si no hay caché válido, sí bloquea la UI
+    // Si no hay caché válido ni guardado (primera vez), sí bloquea la UI con pantalla de carga
     setState(() {
       _isLoadingProducts = true;
       _productsError = null;
@@ -604,7 +645,7 @@ class _MenuPageState extends State<MenuPage>
       final rawToken = prefs.getString('access_token');
       if (rawToken == null || rawToken.trim().isEmpty) {
         if (!mounted) return;
-        if (!background) {
+        if (!background || _categories.isEmpty) {
           setState(() {
             _isLoadingProducts = false;
             _productsError =
@@ -617,18 +658,79 @@ class _MenuPageState extends State<MenuPage>
       final token = rawToken.trim();
       final uri = BackendConfig.api('bubblesplash/categorias/');
 
-      http.Response response = await http.get(
-        uri,
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
+      http.Response? response;
+      bool responseIsUseful = false;
+      List<Category> parsedCategories = [];
+
+      // 1. Intentar obtener el menú con token de autenticación
+      try {
+        response = await http.get(
+          uri,
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        );
+
+        if (response.statusCode == 200) {
+          parsedCategories = await compute(_parseCategoriesIsolate, response.body);
+
+          if (parsedCategories.isNotEmpty) {
+            responseIsUseful = true;
+          } else {
+            debugPrint(
+              '⚠️ El menú con token retornó 0 categorías activas con productos.',
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error en la llamada al menú con token: $e');
+      }
+
+      // 2. Fallback: Si falló, dio 401, o devolvió lista vacía, intentar de forma anónima
+      if (!responseIsUseful) {
+        debugPrint(
+          '🔄 Reintentando obtener menú de forma anónima (sin token)...',
+        );
+        try {
+          final anonResponse = await http.get(
+            uri,
+            headers: {'Accept': 'application/json'},
+          );
+
+          if (anonResponse.statusCode == 200) {
+            final anonCategories = await compute(_parseCategoriesIsolate, anonResponse.body);
+
+            if (anonCategories.isNotEmpty) {
+              parsedCategories = anonCategories;
+              response = anonResponse;
+              responseIsUseful = true;
+              debugPrint('✅ Menú anónimo cargado con éxito en fallback.');
+            }
+          } else {
+            if (response == null || response.statusCode == 401) {
+              response = anonResponse; // Mantener error más descriptivo
+            }
+          }
+        } catch (e) {
+          debugPrint('⚠️ Error en reintento anónimo de menú: $e');
+        }
+      }
 
       if (!mounted) return;
 
-      if (response.statusCode == 401) {
-        if (!background) {
+      if (response == null) {
+        if (!background || _categories.isEmpty) {
+          setState(() {
+            _isLoadingProducts = false;
+            _productsError = 'Error de conexión al cargar productos.';
+          });
+        }
+        return;
+      }
+
+      if (response!.statusCode == 401) {
+        if (!background || _categories.isEmpty) {
           setState(() {
             _isLoadingProducts = false;
             _productsError =
@@ -638,44 +740,36 @@ class _MenuPageState extends State<MenuPage>
         return;
       }
 
-      if (response.statusCode != 200) {
-        if (!background) {
+      if (response!.statusCode != 200) {
+        if (!background || _categories.isEmpty) {
           setState(() {
             _isLoadingProducts = false;
             _productsError =
-                'Error al cargar productos (${response.statusCode}).';
+                'Error al cargar productos (${response!.statusCode}).';
           });
         }
         return;
       }
 
       // ✅ si el body es igual al anterior, no reproceses
-      if (_lastCategoriesBody != null && _lastCategoriesBody == response.body) {
+      if (_lastCategoriesBody != null &&
+          _lastCategoriesBody == response!.body) {
         if (!background) setState(() => _isLoadingProducts = false);
         return;
       }
-      _lastCategoriesBody = response.body;
+      _lastCategoriesBody = response!.body;
 
       // Guardar en cache
-      await prefs.setString(_categoriesCacheKey, response.body);
+      await prefs.setString(_categoriesCacheKey, response!.body);
       await prefs.setInt(_categoriesCacheTimeKey, now);
 
-      final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
-      final categories =
-          data
-              .whereType<Map<String, dynamic>>()
-              .map(Category.fromJson)
-              .where((c) => c.status.toUpperCase() == 'ACTIVO')
-              .where((c) => c.products.isNotEmpty)
-              .toList()
-            ..sort((a, b) => a.order.compareTo(b.order));
-
       // ✅ actualiza solo si cambió algo relevante
-      bool same = _categories.length == categories.length;
+      bool same = _categories.length == parsedCategories.length;
       if (same) {
-        for (int i = 0; i < categories.length; i++) {
-          if (_categories[i].id != categories[i].id ||
-              _categories[i].products.length != categories[i].products.length) {
+        for (int i = 0; i < parsedCategories.length; i++) {
+          if (_categories[i].id != parsedCategories[i].id ||
+              _categories[i].products.length !=
+                  parsedCategories[i].products.length) {
             same = false;
             break;
           }
@@ -683,20 +777,57 @@ class _MenuPageState extends State<MenuPage>
       }
 
       setState(() {
-        if (!same) _categories = categories;
+        if (!same) _categories = parsedCategories;
+        if (_selectedCategoryId == null && _categories.isNotEmpty) {
+          _selectedCategoryId = _categories.first.id;
+        }
         if (!background) _isLoadingProducts = false;
         _productsError = null;
       });
+      _precacheProductImages(parsedCategories);
+      _checkOnboarding();
     } catch (e) {
       if (!mounted) return;
-      if (!background) {
+      if (!background || _categories.isEmpty) {
+        final errStr = e.toString().toLowerCase();
+        final isNetwork = errStr.contains('socketexception') ||
+            errStr.contains('failed host lookup') ||
+            errStr.contains('clientexception') ||
+            errStr.contains('handshake') ||
+            errStr.contains('network') ||
+            errStr.contains('connection');
+
         setState(() {
           _isLoadingProducts = false;
-          _productsError = 'Error al cargar productos: $e';
+          _productsError = isNetwork
+              ? 'No se pudo conectar con el servidor. Por favor, comprueba tu conexión a Internet e intenta nuevamente.'
+              : 'Error al cargar productos: $e';
         });
+
+        if (isNetwork && mounted) {
+          showConnectionErrorDialog(context, onRetry: _cargarCategorias);
+        }
       }
     } finally {
       _isFetchingCategories = false;
+    }
+  }
+
+  void _precacheProductImages(List<Category> categories) {
+    if (!mounted || categories.isEmpty) return;
+    
+    final selectedId = _selectedCategoryId;
+    final targetCat = categories.firstWhere(
+      (c) => c.id == selectedId,
+      orElse: () => categories.first,
+    );
+
+    final listToPrecache = targetCat.products.take(10);
+    for (final prod in listToPrecache) {
+      final u = prod.image.trim();
+      if (u.startsWith('http')) {
+        precacheImage(CachedNetworkImageProvider(u), context);
+      }
     }
   }
 
@@ -784,7 +915,19 @@ class _MenuPageState extends State<MenuPage>
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: const CustomAppBar(),
+      appBar: CustomAppBar(
+        onHelpPressed: () {
+          setState(() {
+            _showInteractiveOnboarding = true;
+            _currentOnboardingStep = 0;
+          });
+          _scrollController.animateTo(
+            0.0,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        },
+      ),
       body: LayoutBuilder(
         builder: (context, constraints) {
           const double margin = 16;
@@ -837,55 +980,24 @@ class _MenuPageState extends State<MenuPage>
             key: _cartFabStackKey,
             children: [
               SingleChildScrollView(
+                controller: _scrollController,
                 padding: const EdgeInsets.only(bottom: 120),
                 physics: const BouncingScrollPhysics(),
                 child: Column(
                   children: [
-                    // 🔹 Banner superior
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 26,
-                        horizontal: 16,
+                    // 🔹 Carrusel de Recomendados en la parte superior
+                    if (_categories.isNotEmpty)
+                      _FeaturedCarouselWidget(
+                        key: _carouselKey,
+                        products: _featuredProducts,
+                        onProductTap: (product) => _openProductAndAdd(context: context, product: product),
                       ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(22),
-                        image: const DecorationImage(
-                          image: AssetImage('assets/franela.jpg'),
-                          fit: BoxFit.cover,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.18),
-                            blurRadius: 18,
-                            offset: const Offset(0, 12),
-                          ),
-                        ],
-                      ),
-                      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.35),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: Colors.white.withOpacity(0.18),
-                          ),
-                        ),
-                        child: const Text(
-                          'Elige tu bebida favorita y disfruta tu momento',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 16.5,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                      ),
-                    ),
 
                     const SizedBox(height: 16),
+
+                    // 🔹 Barra de Categorías Horizontal
+                    if (_categories.isNotEmpty)
+                      _buildCategoryChipsBar(),
 
                     // 🔹 Resumen del pedido
                     if (pedidos.isNotEmpty) ...[
@@ -999,10 +1111,7 @@ class _MenuPageState extends State<MenuPage>
 
                     // ✅ Sección dinámica (CORREGIDA)
                     if (_isLoadingProducts && _categories.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: CircularProgressIndicator(),
-                      )
+                      const _MenuSkeletonLoader()
                     else if (_productsError != null && _categories.isEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(
@@ -1028,19 +1137,20 @@ class _MenuPageState extends State<MenuPage>
                         ),
                       )
                     else
-                      Column(
-                        children: [
-                          for (int i = 0; i < _categories.length; i++) ...[
-                            _buildCategorySectionGrid(
-                              context: context,
-                              categoryId: _categories[i].id,
-                              title: _categories[i].name,
-                              products: _categories[i].products,
-                            ),
-                            if (i < _categories.length - 1)
-                              const SizedBox(height: 14),
-                          ],
-                        ],
+                      Builder(
+                        builder: (context) {
+                          final selectedCat = _categories.firstWhere(
+                            (c) => c.id == _selectedCategoryId,
+                            orElse: () => _categories.first,
+                          );
+                           return _buildCategorySectionGrid(
+                            key: _productListKey,
+                            context: context,
+                            categoryId: selectedCat.id,
+                            title: selectedCat.name,
+                            products: selectedCat.products,
+                          );
+                        },
                       ),
                   ],
                 ),
@@ -1098,6 +1208,17 @@ class _MenuPageState extends State<MenuPage>
                   ),
                 ),
               ),
+              if (_showInteractiveOnboarding)
+                _OnboardingOverlay(
+                  carouselKey: _carouselKey,
+                  categoryChipsKey: _categoryChipsKey,
+                  productListKey: _productListKey,
+                  stackKey: _cartFabStackKey,
+                  currentStep: _currentOnboardingStep,
+                  totalSteps: 3,
+                  onNext: _onNextOnboarding,
+                  onSkip: _onSkipOnboarding,
+                ),
             ],
           );
         },
@@ -1105,36 +1226,143 @@ class _MenuPageState extends State<MenuPage>
     );
   }
 
+  Future<void> _checkOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    final bool shown = prefs.getBool('menu_page_onboarding_shown') ?? false;
+    if (!shown) {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _categories.isNotEmpty) {
+          setState(() {
+            _showInteractiveOnboarding = true;
+            _currentOnboardingStep = 0;
+          });
+          _scrollController.animateTo(
+            0.0,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+  }
+
+  void _onNextOnboarding() async {
+    if (_currentOnboardingStep < 2) {
+      setState(() {
+        _currentOnboardingStep++;
+      });
+    } else {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('menu_page_onboarding_shown', true);
+      setState(() {
+        _showInteractiveOnboarding = false;
+      });
+    }
+  }
+
+  void _onSkipOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('menu_page_onboarding_shown', true);
+    setState(() {
+      _showInteractiveOnboarding = false;
+    });
+  }
+
+
+
+
+  List<Product> get _featuredProducts {
+    if (_categories.isEmpty) return [];
+    final selectedCat = _categories.firstWhere(
+      (c) => c.id == _selectedCategoryId,
+      orElse: () => _categories.first,
+    );
+    return selectedCat.products.take(5).toList();
+  }
+
+  Widget _buildCategoryChipsBar() {
+    return Container(
+      key: _categoryChipsKey,
+      height: 52,
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: _categories.length,
+        itemBuilder: (context, index) {
+          final cat = _categories[index];
+          final isSelected = _selectedCategoryId == cat.id;
+          return Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _selectedCategoryId = cat.id;
+                });
+                if (_scrollController.hasClients) {
+                  _scrollController.animateTo(
+                    0.0,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOut,
+                  );
+                }
+              },
+              child: Center(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isSelected ? const Color(0xFFE28F83) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(999),
+                    boxShadow: isSelected
+                        ? [
+                            BoxShadow(
+                              color: const Color(0xFFE28F83).withOpacity(0.25),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            )
+                          ]
+                        : [],
+                  ),
+                  child: Text(
+                    cat.name,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : const Color(0xFF0F172A).withOpacity(0.6),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   // --------------------
-  // SECCIÓN DE CATEGORÍA (PREMIUM + GRID 2 COLS)
+  // SECCIÓN DE CATEGORÍA (PREMIUM + LISTA VERTICAL)
   // --------------------
   Widget _buildCategorySectionGrid({
+    Key? key,
     required BuildContext context,
     required int categoryId,
     required String title,
     required List<Product> products,
   }) {
-    final theme = Theme.of(context);
-
-    const int maxPreview = 4;
-    final bool hasMore = products.length > maxPreview;
-    final int visibleCount = hasMore ? maxPreview : products.length;
-
     return Container(
+      key: key,
       width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6F8FA),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.black.withOpacity(0.04)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color.fromARGB(255, 255, 255, 255).withOpacity(0.06),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.black.withOpacity(0.03)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1143,158 +1371,60 @@ class _MenuPageState extends State<MenuPage>
           Row(
             children: [
               Container(
-                width: 10,
-                height: 26,
+                width: 6,
+                height: 20,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(999),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF1B6F81), Color(0xFF12A3B6)],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
+                  color: const Color(0xFFE28F83),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  title.toUpperCase(),
+                  title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
+                  style: const TextStyle(
+                    color: Color(0xFF062B35),
                     fontWeight: FontWeight.w900,
-                    letterSpacing: 0.6,
+                    fontSize: 18,
+                    letterSpacing: 0.2,
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1B6F81).withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '${products.length} items',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF1B6F81),
-                  ),
-                ),
-              ),
-              if (hasMore)
-                Padding(
-                  padding: const EdgeInsets.only(left: 6),
-                  child: InkWell(
-                    onTap: () async {
-                      final resultPedidos =
-                          await Navigator.push<List<Map<String, dynamic>>>(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => CategoryProductsPage(
-                                categoryId: categoryId,
-                                categoryTitle: title,
-                                products: products,
-                                descuento: widget.descuento,
-                                initialPedidos: pedidos,
-                                ofcIntId: widget.ofcIntId,
-                              ),
-                            ),
-                          );
-                      if (resultPedidos != null) {
-                        setState(() => pedidos = resultPedidos);
-                        await _guardarPedidos();
-                      }
-                    },
-                    borderRadius: BorderRadius.circular(999),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            const Color(0xFF0B3D4A).withOpacity(0.08),
-                            const Color(0xFF128FA0).withOpacity(0.10),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: const Color(0xFF128FA0).withOpacity(0.22),
-                        ),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x10000000),
-                            blurRadius: 6,
-                            offset: Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Icon(
-                            Icons.grid_view_rounded,
-                            size: 14,
-                            color: Color(0xFF0B3D4A),
-                          ),
-                          SizedBox(width: 6),
-                          Text(
-                            'Ver más',
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF0B3D4A),
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                          SizedBox(width: 4),
-                          Icon(
-                            Icons.arrow_forward_ios_rounded,
-                            size: 13,
-                            color: Color(0xFF0B3D4A),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 16),
 
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: visibleCount,
-            padding: EdgeInsets.zero,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              childAspectRatio: 0.95,
-            ),
-            itemBuilder: (context, index) {
-              final product = products[index];
-              final precioOriginal = product.price;
-              final bool canUseCanje = widget.descuento > 0 && !_canjeYaUsado;
-              final double efectivoDescuento = canUseCanje
-                  ? widget.descuento
-                  : 0.0;
-              final double precioFinal = canUseCanje
-                  ? precioOriginal * (1 - widget.descuento)
-                  : precioOriginal;
-              return _PremiumProductGridTile(
-                product: product,
-                descuento: efectivoDescuento,
-                precioOriginal: precioOriginal,
-                precioFinal: precioFinal,
-                onAdd: () =>
-                    _openProductAndAdd(context: context, product: product),
-              );
-            },
+          Column(
+            children: [
+              for (int index = 0; index < products.length; index++) ...[
+                Builder(
+                  builder: (context) {
+                    final product = products[index];
+                    final precioOriginal = product.price;
+                    final bool canUseCanje = widget.descuento > 0 && !_canjeYaUsado;
+                    final double efectivoDescuento = canUseCanje
+                        ? widget.descuento
+                        : 0.0;
+                    final double precioFinal = canUseCanje
+                        ? precioOriginal * (1 - widget.descuento)
+                        : precioOriginal;
+                    return _PremiumProductGridTile(
+                      key: ValueKey<int>(product.id),
+                      product: product,
+                      descuento: efectivoDescuento,
+                      precioOriginal: precioOriginal,
+                      precioFinal: precioFinal,
+                      onAdd: () =>
+                          _openProductAndAdd(context: context, product: product),
+                    );
+                  },
+                ),
+                if (index < products.length - 1)
+                  const SizedBox(height: 12),
+              ],
+            ],
           ),
         ],
       ),
@@ -1305,8 +1435,9 @@ class _MenuPageState extends State<MenuPage>
 // --------------------
 // TILE PREMIUM para GRID (2 columnas)
 // --------------------
-class _PremiumProductGridTile extends StatelessWidget {
+class _PremiumProductGridTile extends StatefulWidget {
   const _PremiumProductGridTile({
+    super.key,
     required this.product,
     required this.descuento,
     required this.precioOriginal,
@@ -1321,194 +1452,183 @@ class _PremiumProductGridTile extends StatelessWidget {
   final VoidCallback onAdd;
 
   @override
-  Widget build(BuildContext context) {
-    final hasDiscount = descuento > 0;
-
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(15),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(15),
-        onTap: onAdd,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 120, maxHeight: 155),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(15),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x14000000),
-                blurRadius: 10,
-                offset: Offset(0, 6),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(15),
-            child: Stack(
-              children: [
-                // Imagen de fondo completa
-                Positioned.fill(
-                  child: _PremiumGridImage(pathOrUrl: product.image),
-                ),
-                // Overlay degradado
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.black.withOpacity(0.05),
-                          Colors.black.withOpacity(0.55),
-                        ],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                      ),
-                    ),
-                  ),
-                ),
-                // Descuento
-                if (hasDiscount)
-                  Positioned(
-                    top: 10,
-                    left: 10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF22C55E),
-                        borderRadius: BorderRadius.circular(999),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x22000000),
-                            blurRadius: 8,
-                            offset: Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        '-${(descuento * 100).toInt()}%',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ),
-                // Info y botón, compactos y responsivos
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  bottom: 12,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          product.name.toUpperCase(),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.3,
-                            shadows: [
-                              Shadow(color: Colors.black54, blurRadius: 10),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 7),
-                      Row(
-                        children: [
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              'S/. ${precioFinal.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w900,
-                                shadows: [
-                                  Shadow(color: Colors.black54, blurRadius: 10),
-                                ],
-                              ),
-                            ),
-                          ),
-                          if (hasDiscount) ...[
-                            const SizedBox(width: 7),
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                'S/. ${precioOriginal.toStringAsFixed(2)}',
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w800,
-                                  decoration: TextDecoration.lineThrough,
-                                  decorationThickness: 2,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 7),
-                      _GlassAddButton(onTap: onAdd),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  State<_PremiumProductGridTile> createState() => _PremiumProductGridTileState();
 }
 
-class _GlassAddButton extends StatelessWidget {
-  const _GlassAddButton({required this.onTap});
-  final VoidCallback onTap;
+class _PremiumProductGridTileState extends State<_PremiumProductGridTile> {
+  bool _isPressed = false;
+
+  String _capitalize(String text) {
+    if (text.isEmpty) return text;
+    return text.split(' ').map((word) {
+      if (word.isEmpty) return '';
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).where((w) => w.isNotEmpty).join(' ');
+  }
+
+  Color _getPastelBg(int id) {
+    final colors = [
+      const Color(0xFFFFF0EC), // Peach pastel
+      const Color(0xFFE8F5E9), // Mint green pastel
+      const Color(0xFFE1F5FE), // Ice blue pastel
+      const Color(0xFFFFFDE7), // Soft yellow pastel
+      const Color(0xFFF3E5F5), // Lavender pastel
+      const Color(0xFFE0F2F1), // Soft teal pastel
+      const Color(0xFFFFF3E0), // Orange pastel
+    ];
+    return colors[id % colors.length];
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
+    final hasDiscount = widget.descuento > 0;
+
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _isPressed = true),
+      onTapUp: (_) {
+        setState(() => _isPressed = false);
+        widget.onAdd();
+      },
+      onTapCancel: () => setState(() => _isPressed = false),
+      child: AnimatedScale(
+        scale: _isPressed ? 0.97 : 1.0,
+        duration: const Duration(milliseconds: 100),
         child: Container(
-          height: 40,
+          height: 100,
+          padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.18),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.white.withOpacity(0.22), width: 1),
-            boxShadow: const [
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFF1F5F9), width: 1),
+            boxShadow: [
               BoxShadow(
-                color: Color(0x22000000),
+                color: Colors.black.withOpacity(0.03),
                 blurRadius: 12,
-                offset: Offset(0, 8),
+                offset: const Offset(0, 4),
               ),
             ],
           ),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(Icons.add, color: Colors.white, size: 18),
-              SizedBox(width: 8),
-              Text(
-                'Agregar',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.2,
+            children: [
+              // Contenedor pastel de imagen
+              Container(
+                width: 84,
+                height: 84,
+                decoration: BoxDecoration(
+                  color: _getPastelBg(widget.product.id),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                padding: const EdgeInsets.all(8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: _PremiumGridImage(
+                          key: ValueKey<String>(widget.product.image),
+                          pathOrUrl: widget.product.image,
+                        ),
+                      ),
+                      if (hasDiscount)
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF22C55E),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '-${(widget.descuento * 100).toInt()}%',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 8,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+
+              // Información del producto
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _capitalize(widget.product.name),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF062B35), // Navy oscuro
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Text(
+                          'S/. ${widget.precioFinal.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: Color(0xFFE28F83), // Color coral
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        if (hasDiscount) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            'S/. ${widget.precioOriginal.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              color: Colors.black38,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              decoration: TextDecoration.lineThrough,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Botón circular +
+              Align(
+                alignment: Alignment.bottomRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 4, right: 4),
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFE28F83), // Botón Coral
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Color(0x15000000),
+                          blurRadius: 4,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.add,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -1520,7 +1640,7 @@ class _GlassAddButton extends StatelessWidget {
 }
 
 class _PremiumGridImage extends StatelessWidget {
-  const _PremiumGridImage({required this.pathOrUrl});
+  const _PremiumGridImage({super.key, required this.pathOrUrl});
   final String pathOrUrl;
 
   @override
@@ -1530,7 +1650,7 @@ class _PremiumGridImage extends StatelessWidget {
       width: double.infinity,
       height: double.infinity,
       child: const Center(
-        child: Icon(Icons.local_cafe_rounded, size: 34, color: Colors.black26),
+        child: Icon(Icons.local_drink_rounded, size: 34, color: Colors.black26),
       ),
     );
 
@@ -1555,6 +1675,7 @@ class _PremiumGridImage extends StatelessWidget {
         final base64Str = extractBase64(pathOrUrl);
         final bytes = base64Decode(base64Str);
         return Image.memory(
+          key: ValueKey<String>(pathOrUrl),
           bytes,
           width: double.infinity,
           height: double.infinity,
@@ -1567,16 +1688,24 @@ class _PremiumGridImage extends StatelessWidget {
     }
 
     if (pathOrUrl.startsWith('http')) {
-      return Image.network(
-        pathOrUrl,
+      return CachedNetworkImage(
+        key: ValueKey<String>(pathOrUrl),
+        imageUrl: pathOrUrl,
         width: double.infinity,
         height: double.infinity,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => placeholder,
+        fadeInDuration: const Duration(milliseconds: 300),
+        placeholder: (_, __) => placeholder,
+        errorWidget: (_, __, ___) => placeholder,
+        memCacheWidth: 250,
+        memCacheHeight: 250,
+        maxWidthDiskCache: 500,
+        maxHeightDiskCache: 500,
       );
     }
 
     return Image.asset(
+      key: ValueKey<String>(pathOrUrl),
       pathOrUrl,
       width: double.infinity,
       height: double.infinity,
@@ -2799,6 +2928,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         final base64Str = extractBase64(pathOrUrl);
         final bytes = base64Decode(base64Str);
         return Image.memory(
+          key: ValueKey<String>(pathOrUrl),
           bytes,
           width: double.infinity,
           height: 220,
@@ -2813,18 +2943,24 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     }
 
     if (pathOrUrl.startsWith('http')) {
-      return Image.network(
-        pathOrUrl,
+      return CachedNetworkImage(
+        key: ValueKey<String>(pathOrUrl),
+        imageUrl: pathOrUrl,
         width: double.infinity,
         height: 220,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          return placeholder;
-        },
+        fadeInDuration: const Duration(milliseconds: 300),
+        placeholder: (context, url) => placeholder,
+        errorWidget: (context, url, error) => placeholder,
+        memCacheWidth: 600,
+        memCacheHeight: 440,
+        maxWidthDiskCache: 1200,
+        maxHeightDiskCache: 880,
       );
     }
 
     return Image.asset(
+      key: ValueKey<String>(pathOrUrl),
       pathOrUrl,
       width: double.infinity,
       height: 220,
@@ -3128,16 +3264,11 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
                     )
                   : Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: GridView.builder(
+                      child: ListView.separated(
                         physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.only(bottom: 24),
                         itemCount: products.length,
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                              childAspectRatio: 0.74,
-                            ),
+                        separatorBuilder: (context, index) => const SizedBox(height: 12),
                         itemBuilder: (context, index) {
                           final product = products[index];
                           final precioOriginal = product.price;
@@ -3467,3 +3598,764 @@ class _PremiumFeedbackModal extends StatelessWidget {
     );
   }
 }
+
+// ==========================================
+// INTERACTIVE ONBOARDING SPOTLIGHT OVERLAY
+// ==========================================
+class _OnboardingOverlay extends StatefulWidget {
+  final GlobalKey carouselKey;
+  final GlobalKey categoryChipsKey;
+  final GlobalKey productListKey;
+  final GlobalKey stackKey;
+  final int currentStep;
+  final VoidCallback onNext;
+  final VoidCallback onSkip;
+  final int totalSteps;
+
+  const _OnboardingOverlay({
+    required this.carouselKey,
+    required this.categoryChipsKey,
+    required this.productListKey,
+    required this.stackKey,
+    required this.currentStep,
+    required this.onNext,
+    required this.onSkip,
+    required this.totalSteps,
+  });
+
+  @override
+  State<_OnboardingOverlay> createState() => _OnboardingOverlayState();
+}
+
+class _OnboardingOverlayState extends State<_OnboardingOverlay> {
+  Rect? _targetRect;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateRect();
+  }
+
+  @override
+  void didUpdateWidget(covariant _OnboardingOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentStep != widget.currentStep) {
+      _updateRect();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _updateRect() {
+    _timer?.cancel();
+    _timer = Timer(const Duration(milliseconds: 150), () {
+      if (!mounted) return;
+      final key = _getCurrentKey();
+      final context = key.currentContext;
+      final stackContext = widget.stackKey.currentContext;
+      if (context != null && stackContext != null) {
+        final renderBox = context.findRenderObject() as RenderBox?;
+        final stackBox = stackContext.findRenderObject() as RenderBox?;
+        if (renderBox != null && renderBox.hasSize && stackBox != null) {
+          final offset = renderBox.localToGlobal(Offset.zero, ancestor: stackBox);
+          final size = renderBox.size;
+          setState(() {
+            _targetRect = Rect.fromLTWH(
+              offset.dx - 8,
+              offset.dy - 8,
+              size.width + 16,
+              size.height + 16,
+            );
+          });
+        }
+      } else {
+        _updateRect(); // retry if context not loaded yet
+      }
+    });
+  }
+
+  GlobalKey _getCurrentKey() {
+    switch (widget.currentStep) {
+      case 0:
+        return widget.carouselKey;
+      case 1:
+        return widget.categoryChipsKey;
+      case 2:
+      default:
+        return widget.productListKey;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final stepData = _getStepData();
+
+    double? tooltipTop;
+    double? tooltipBottom;
+
+    if (_targetRect != null) {
+      final rect = _targetRect!;
+      if (rect.bottom < size.height * 0.55) {
+        tooltipTop = rect.bottom + 16;
+      } else {
+        tooltipBottom = (size.height - rect.top) + 16;
+      }
+    } else {
+      tooltipTop = size.height / 3;
+    }
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            ignoring: false,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {},
+              child: CustomPaint(
+                painter: _SpotlightPainter(targetRect: _targetRect),
+              ),
+            ),
+          ),
+        ),
+        AnimatedPositioned(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          left: 16,
+          right: 16,
+          top: tooltipTop,
+          bottom: tooltipBottom,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Card(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                color: Colors.white,
+                elevation: 16,
+                child: Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Guía de Uso • ${widget.currentStep + 1}/${widget.totalSteps}',
+                            style: const TextStyle(
+                              color: Colors.black38,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: widget.onSkip,
+                            child: const Text(
+                              'Saltar',
+                              style: TextStyle(
+                                color: Color(0xFFE28F83),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE28F83).withOpacity(0.12),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              stepData['icon'] as IconData,
+                              color: const Color(0xFFE28F83),
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  stepData['title'] as String,
+                                  style: const TextStyle(
+                                    color: Color(0xFF062B35),
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  stepData['desc'] as String,
+                                  style: const TextStyle(
+                                    color: Colors.black54,
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w500,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: List.generate(widget.totalSteps, (i) {
+                              return Container(
+                                width: i == widget.currentStep ? 16 : 6,
+                                height: 6,
+                                margin: const EdgeInsets.symmetric(horizontal: 3),
+                                decoration: BoxDecoration(
+                                  color: i == widget.currentStep
+                                      ? const Color(0xFFE28F83)
+                                      : Colors.black12,
+                                  borderRadius: BorderRadius.circular(99),
+                                ),
+                              );
+                            }),
+                          ),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFE28F83),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                                vertical: 10,
+                              ),
+                              elevation: 0,
+                            ),
+                            onPressed: widget.onNext,
+                            child: Text(
+                              widget.currentStep == widget.totalSteps - 1
+                                  ? 'Comenzar'
+                                  : 'Siguiente',
+                              style: const TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Map<String, dynamic> _getStepData() {
+    switch (widget.currentStep) {
+      case 0:
+        return {
+          'icon': Icons.swap_horizontal_circle_rounded,
+          'title': 'Carrusel de Recomendados',
+          'desc': 'Desliza de izquierda a derecha sobre las bebidas en la parte superior para explorar lo más recomendado.',
+        };
+      case 1:
+        return {
+          'icon': Icons.category_rounded,
+          'title': 'Pestañas de Categoría',
+          'desc': 'Pulsa sobre las categorías para cambiar de sección y filtrar las bebidas al instante.',
+        };
+      case 2:
+      default:
+        return {
+          'icon': Icons.swipe_vertical_rounded,
+          'title': 'Desliza y Explora',
+          'desc': 'Desliza hacia abajo para ver la lista completa. Pulsa (+) para añadir directamente al carrito o presiona la tarjeta para ver toppings.',
+        };
+    }
+  }
+}
+
+class _SpotlightPainter extends CustomPainter {
+  final Rect? targetRect;
+  final double borderRadius;
+
+  _SpotlightPainter({this.targetRect, this.borderRadius = 20});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = Colors.black.withOpacity(0.70);
+    if (targetRect == null) {
+      canvas.drawRect(Offset.zero & size, paint);
+      return;
+    }
+
+    final backgroundPath = Path()..addRect(Offset.zero & size);
+    final targetPath = Path()
+      ..addRRect(RRect.fromRectAndRadius(
+        targetRect!,
+        Radius.circular(borderRadius),
+      ));
+
+    final path = Path.combine(PathOperation.difference, backgroundPath, targetPath);
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpotlightPainter oldDelegate) {
+    return oldDelegate.targetRect != targetRect || oldDelegate.borderRadius != borderRadius;
+  }
+}
+
+class _FeaturedCarouselWidget extends StatefulWidget {
+  final List<Product> products;
+  final Function(Product) onProductTap;
+
+  const _FeaturedCarouselWidget({
+    super.key,
+    required this.products,
+    required this.onProductTap,
+  });
+
+  @override
+  State<_FeaturedCarouselWidget> createState() => _FeaturedCarouselWidgetState();
+}
+
+class _FeaturedCarouselWidgetState extends State<_FeaturedCarouselWidget> {
+  late final PageController _carouselController;
+  int _carouselActiveIndex = 0;
+  List<Widget> _carouselItems = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _carouselController = PageController(viewportFraction: 0.65)
+      ..addListener(() {
+        if (mounted) {
+          final page = _carouselController.page ?? 0.0;
+          final rounded = page.round();
+          if (rounded != _carouselActiveIndex) {
+            setState(() {
+              _carouselActiveIndex = rounded;
+            });
+          }
+        }
+      });
+    _buildCarouselItems();
+  }
+
+  void _buildCarouselItems() {
+    _carouselItems = widget.products.map((product) {
+      return _KeepAliveWrapper(
+        key: ValueKey<int>(product.id),
+        child: GestureDetector(
+          onTap: () => widget.onProductTap(product),
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: _getCarouselPastelBg(product.id),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(20),
+            child: Center(
+              child: ClipOval(
+                child: AspectRatio(
+                  aspectRatio: 1.0,
+                  child: _PremiumGridImage(
+                    key: ValueKey<String>(product.image),
+                    pathOrUrl: product.image,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  @override
+  void didUpdateWidget(_FeaturedCarouselWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.products != oldWidget.products) {
+      _carouselActiveIndex = 0;
+      _buildCarouselItems();
+      if (_carouselController.hasClients) {
+        _carouselController.jumpToPage(0);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _carouselController.dispose();
+    super.dispose();
+  }
+
+  Color _getCarouselPastelBg(int id) {
+    final colors = [
+      const Color(0xFFFFF0EC),
+      const Color(0xFFEAF8EB),
+      const Color(0xFFEAF6FF),
+      const Color(0xFFFFFDE7),
+      const Color(0xFFF7EBF9),
+    ];
+    return colors[id % colors.length];
+  }
+
+  String _capitalizeText(String text) {
+    if (text.isEmpty) return text;
+    return text.split(' ').map((word) {
+      if (word.isEmpty) return '';
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).where((w) => w.isNotEmpty).join(' ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final featured = widget.products;
+    if (featured.isEmpty) return const SizedBox.shrink();
+
+    final activeIndex = _carouselActiveIndex.clamp(0, featured.length - 1);
+    final activeProduct = featured[activeIndex];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Text(
+                  'Recomendado para ti',
+                  style: TextStyle(
+                    color: Color(0xFF062B35),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          SizedBox(
+            height: 180,
+            child: PageView.builder(
+              key: const PageStorageKey('featured_carousel_page_view'),
+              controller: _carouselController,
+              itemCount: _carouselItems.length,
+              physics: const BouncingScrollPhysics(),
+              itemBuilder: (context, index) {
+                return _carouselItems[index];
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          Column(
+            children: [
+              Text(
+                _capitalizeText(activeProduct.name),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFFE28F83),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'S/. ${activeProduct.price.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  color: Color(0xFF062B35),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KeepAliveWrapper extends StatefulWidget {
+  final Widget child;
+  const _KeepAliveWrapper({super.key, required this.child});
+
+  @override
+  State<_KeepAliveWrapper> createState() => _KeepAliveWrapperState();
+}
+
+class _KeepAliveWrapperState extends State<_KeepAliveWrapper> with AutomaticKeepAliveClientMixin {
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+
+  @override
+  bool get wantKeepAlive => true;
+}
+
+class _MenuSkeletonLoader extends StatefulWidget {
+  const _MenuSkeletonLoader();
+
+  @override
+  State<_MenuSkeletonLoader> createState() => _MenuSkeletonLoaderState();
+}
+
+class _MenuSkeletonLoaderState extends State<_MenuSkeletonLoader>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _opacityAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+    _opacityAnim = Tween<double>(begin: 0.35, end: 0.7).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _opacityAnim,
+      builder: (context, child) {
+        final opacity = _opacityAnim.value;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Skeleton: Carousel
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Container(
+                width: 180,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(opacity),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Center(
+              child: Container(
+                width: 180,
+                height: 180,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(opacity),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Center(
+              child: Container(
+                width: 140,
+                height: 18,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(opacity),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Center(
+              child: Container(
+                width: 80,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(opacity),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Skeleton: Category Chips
+            SizedBox(
+              height: 52,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: 4,
+                itemBuilder: (context, index) {
+                  final widths = [80.0, 100.0, 90.0, 110.0];
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 16, top: 8, bottom: 8),
+                    child: Container(
+                      width: widths[index % widths.length],
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(opacity),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Skeleton: Product Grid (List)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF9FAFB),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: Colors.black.withOpacity(0.03)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(999),
+                            color: Colors.grey.withOpacity(opacity),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          width: 120,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withOpacity(opacity),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Column(
+                      children: List.generate(3, (index) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Container(
+                            height: 100,
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: const Color(0xFFF1F5F9), width: 1),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 84,
+                                  height: 84,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.withOpacity(opacity),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        width: 140,
+                                        height: 14,
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.withOpacity(opacity),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        width: 80,
+                                        height: 12,
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.withOpacity(opacity),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        width: 60,
+                                        height: 14,
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.withOpacity(opacity),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+List<Category> _parseCategoriesIsolate(String rawJson) {
+  final List<dynamic> data = jsonDecode(rawJson) as List<dynamic>;
+  return data
+      .whereType<Map<String, dynamic>>()
+      .map(Category.fromJson)
+      .where((c) => c.status.toUpperCase() == 'ACTIVO')
+      .where((c) => c.products.isNotEmpty)
+      .toList()
+    ..sort((a, b) => a.order.compareTo(b.order));
+}
+

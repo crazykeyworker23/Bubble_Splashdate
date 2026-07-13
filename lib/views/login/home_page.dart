@@ -100,12 +100,18 @@ class _HomePageState extends State<HomePage> {
     {"icon": Icons.card_giftcard, "label": "Beneficios"},
   ];
 
-  final List<Widget> _pages = const [
-    InicioPage(),
-    PagosPage(),
-    MenuPage(),
-    BeneficiosPage(),
-  ];
+  late final List<Widget> _pages;
+
+  @override
+  void initState() {
+    super.initState();
+    _pages = [
+      InicioPage(onTabChange: _onItemTapped),
+      const PagosPage(),
+      const MenuPage(),
+      const BeneficiosPage(),
+    ];
+  }
 
   void _onItemTapped(int index) => setState(() => _selectedIndex = index);
 

@@ -176,13 +176,15 @@ class _PagosPageState extends State<PagosPage> {
       _cargarSaldo(),
       _cargarNombreCliente(),
     ]);
-    setState(() {
-      _movimientosPreviewFuture = _cargarMovimientosPreview();
-    });
+    if (mounted) {
+      setState(() {
+        _movimientosPreviewFuture = _cargarMovimientosPreview();
+      });
+    }
   }
 
   Future<void> _cargarSaldo() async {
-    setState(() => _loadingSaldo = true);
+    if (mounted) setState(() => _loadingSaldo = true);
     try {
       final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/me/');
 
@@ -201,18 +203,22 @@ class _PagosPageState extends State<PagosPage> {
         final String balanceStr = (data['wal_de_balance'] ?? '0').toString();
         final double balance = double.tryParse(balanceStr) ?? 0.0;
 
-        setState(() {
-          saldoActual = balance;
-          _loadingSaldo = false;
-        });
+        if (mounted) {
+          setState(() {
+            saldoActual = balance;
+            _loadingSaldo = false;
+          });
+        }
       } else {
         debugPrint(
           'Error al cargar saldo desde API wallet/me: ${response.statusCode} ${response.body}',
         );
-        setState(() {
-          saldoActual = 0.0;
-          _loadingSaldo = false;
-        });
+        if (mounted) {
+          setState(() {
+            saldoActual = 0.0;
+            _loadingSaldo = false;
+          });
+        }
         await _showPremiumModal(
           title: 'No se pudo cargar',
           message: 'No se pudo cargar tu saldo. Intenta nuevamente.',
@@ -222,10 +228,12 @@ class _PagosPageState extends State<PagosPage> {
       }
     } catch (e) {
       debugPrint('Excepción al cargar saldo desde API wallet/me: $e');
-      setState(() {
-        saldoActual = 0.0;
-        _loadingSaldo = false;
-      });
+      if (mounted) {
+        setState(() {
+          saldoActual = 0.0;
+          _loadingSaldo = false;
+        });
+      }
       await _showPremiumModal(
         title: 'Error',
         message: 'Ocurrió un error al cargar tu saldo.',
@@ -238,13 +246,17 @@ class _PagosPageState extends State<PagosPage> {
   Future<void> _cargarNombreCliente() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      setState(() {
-        _nombreCliente = user?.displayName ?? user?.email ?? 'Cliente';
-      });
+      if (mounted) {
+        setState(() {
+          _nombreCliente = user?.displayName ?? user?.email ?? 'Cliente';
+        });
+      }
     } catch (_) {
-      setState(() {
-        _nombreCliente = 'Cliente';
-      });
+      if (mounted) {
+        setState(() {
+          _nombreCliente = 'Cliente';
+        });
+      }
     }
   }
 

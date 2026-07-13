@@ -14,11 +14,35 @@
       },
       "oauth_client": [
         {
+          "client_id": "408128401118-0fgol97bfsk9me2ndb2lgnp81ajdqn8k.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.finatech.bubblesplash",
+            "certificate_hash": "73beb9bf0d26b9ae0ba0c7435f8d36710c213e29"
+          }
+        },
+        {
           "client_id": "408128401118-guj6u81lq8qmitrb05psp6u92l3mbvc3.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.finatech.bubblesplash",
             "certificate_hash": "953ea5d5f8888281b57c39e6897b4484c7102422"
+          }
+        },
+        {
+          "client_id": "408128401118-m5qhdpfquhg0vdlnmrergs752a9k9q98.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.finatech.bubblesplash",
+            "certificate_hash": "a4f610cfdba9fd5b020c1bb1a8a206a69ac4e9b5"
+          }
+        },
+        {
+          "client_id": "408128401118-ua165ddpefrb9faj1cd8f7p4ai7gnbud.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.finatech.bubblesplash",
+            "certificate_hash": "e1d8ac75677aa512355ee1ed13483dcc9763a1df"
           }
         },
         {
@@ -37,6 +61,13 @@
             {
               "client_id": "408128401118-7ak3qjc23eabejub96gcijv75juvenvl.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "408128401118-l69h1palsqoef3jonoebp1uaq3lldgpg.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.finatech.bubblesplash"
+              }
             }
           ]
         }
