@@ -254,9 +254,11 @@ class _CanjearPuntosPageState extends State<CanjearPuntosPage> {
 
         // Actualizar el caché local de puntos para reflejar el cambio de inmediato en la interfaz
         final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          final keyPoints = 'beneficios_puntos_cache_${user.uid}';
-          final keyPuntosAlt = 'puntos_${user.uid}';
+        final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
+        final String? userUniqueId = user?.uid ?? (email != null && email.isNotEmpty ? email : null);
+        if (userUniqueId != null) {
+          final keyPoints = 'beneficios_puntos_cache_$userUniqueId';
+          final keyPuntosAlt = 'puntos_$userUniqueId';
           final currentPoints = prefs.getInt(keyPoints) ?? 0;
 
           // Hacemos fetch al progreso para obtener el total actualizado del servidor

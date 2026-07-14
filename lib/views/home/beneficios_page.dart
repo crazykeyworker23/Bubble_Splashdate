@@ -221,8 +221,10 @@ class _BeneficiosPageState extends State<BeneficiosPage>
 
     // ---- puntos cache
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      final keyPoints = '$_puntosCacheKeyPrefix${user.uid}';
+    final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
+    final String? userUniqueId = user?.uid ?? (email != null && email.isNotEmpty ? email : null);
+    if (userUniqueId != null) {
+      final keyPoints = '$_puntosCacheKeyPrefix$userUniqueId';
       final storedPoints = prefs.getInt(keyPoints);
       if (storedPoints != null) {
         if (!mounted) return;
@@ -418,7 +420,9 @@ class _BeneficiosPageState extends State<BeneficiosPage>
     final prefs = await SharedPreferences.getInstance();
 
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
+    final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
+
+    if (user == null && (email == null || email.isEmpty)) {
       if (!mounted) return;
       setState(() {
         puntos = 0;
@@ -427,9 +431,10 @@ class _BeneficiosPageState extends State<BeneficiosPage>
       return;
     }
 
-    final String keyPuntos = 'puntos_${user.uid}';
-    final String cacheKey = '$_puntosCacheKeyPrefix${user.uid}';
-    final String cacheTimeKey = '$_puntosCacheTimeKeyPrefix${user.uid}';
+    final String userUniqueId = user?.uid ?? email!;
+    final String keyPuntos = 'puntos_$userUniqueId';
+    final String cacheKey = '$_puntosCacheKeyPrefix$userUniqueId';
+    final String cacheTimeKey = '$_puntosCacheTimeKeyPrefix$userUniqueId';
 
     try {
       final rawToken = prefs.getString('access_token');
@@ -1654,8 +1659,9 @@ class RewardCard extends StatelessWidget {
 
                 final prefs = await SharedPreferences.getInstance();
                 final user = FirebaseAuth.instance.currentUser;
+                final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
 
-                if (user == null) {
+                if (user == null && (email == null || email.isEmpty)) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
@@ -1689,7 +1695,8 @@ class RewardCard extends StatelessWidget {
                   return;
                 }
 
-                final String keyPuntos = 'puntos_${user.uid}';
+                final String userUniqueId = user?.uid ?? email!;
+                final String keyPuntos = 'puntos_$userUniqueId';
                 int currentPoints = prefs.getInt(keyPuntos) ?? 0;
 
                 if (pointsCost > 0 && currentPoints < pointsCost) {

@@ -342,7 +342,7 @@ class _MenuPageState extends State<MenuPage>
   bool get _canjeYaUsado => pedidos.any((p) => p['isPromoItem'] == true);
 
   List<Category> _categories = [];
-  bool _isLoadingProducts = false;
+  bool _isLoadingProducts = true;
   String? _productsError;
 
   // ✅ optimización: evita solapes y reprocesado
@@ -4166,6 +4166,14 @@ class _MenuSkeletonLoaderState extends State<_MenuSkeletonLoader>
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Color.fromARGB(255, 27, 111, 129)),
+                ),
+              ),
+            ),
             // Skeleton: Carousel
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

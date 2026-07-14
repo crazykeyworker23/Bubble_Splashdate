@@ -152,7 +152,9 @@ class _ScannerPageState extends State<ScannerPage> {
                         // Registrar movimiento de gasto en el historial
                         final prefs = await SharedPreferences.getInstance();
                         final user = FirebaseAuth.instance.currentUser;
-                        final String? keyMovs = user != null ? 'movimientos_${user.uid}' : null;
+                        final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
+                        final String? userUniqueId = user?.uid ?? (email != null && email.isNotEmpty ? email : null);
+                        final String? keyMovs = userUniqueId != null ? 'movimientos_$userUniqueId' : null;
                         final List<String> data = keyMovs != null
                           ? (prefs.getStringList(keyMovs) ?? [])
                           : <String>[];
@@ -163,12 +165,16 @@ class _ScannerPageState extends State<ScannerPage> {
                         // Obtener nombre del cliente (similar a PagosPage)
                         String nombreCliente = 'Cliente';
                         try {
-                          final user = FirebaseAuth.instance.currentUser;
                           if (user != null) {
                             nombreCliente = (user.displayName != null &&
                                     user.displayName!.trim().isNotEmpty)
                                 ? user.displayName!
                                 : (user.email ?? 'Cliente');
+                          } else {
+                            final name = prefs.getString('use_txt_fullname') ?? prefs.getString('google_name') ?? prefs.getString('google_email');
+                            if (name != null && name.isNotEmpty) {
+                              nombreCliente = name;
+                            }
                           }
                         } catch (_) {}
 

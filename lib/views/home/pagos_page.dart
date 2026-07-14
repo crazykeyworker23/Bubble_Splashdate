@@ -246,10 +246,20 @@ class _PagosPageState extends State<PagosPage> {
   Future<void> _cargarNombreCliente() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (mounted) {
-        setState(() {
-          _nombreCliente = user?.displayName ?? user?.email ?? 'Cliente';
-        });
+      if (user != null) {
+        if (mounted) {
+          setState(() {
+            _nombreCliente = user.displayName ?? user.email ?? 'Cliente';
+          });
+        }
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        final name = prefs.getString('use_txt_fullname') ?? prefs.getString('google_name') ?? prefs.getString('google_email') ?? 'Cliente';
+        if (mounted) {
+          setState(() {
+            _nombreCliente = name;
+          });
+        }
       }
     } catch (_) {
       if (mounted) {
@@ -972,7 +982,9 @@ class _PagosPageState extends State<PagosPage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final user = FirebaseAuth.instance.currentUser;
-      final String? keyMovs = user != null ? 'movimientos_${user.uid}' : null;
+      final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
+      final String? userUniqueId = user?.uid ?? (email != null && email.isNotEmpty ? email : null);
+      final String? keyMovs = userUniqueId != null ? 'movimientos_$userUniqueId' : null;
       final List<String> data =
           keyMovs != null ? (prefs.getStringList(keyMovs) ?? <String>[]) : <String>[];
 
@@ -1168,9 +1180,11 @@ class _PagosPageState extends State<PagosPage> {
           // Sumar puntos por recarga
           const int puntosGanadosRecarga = 5;
           final user = FirebaseAuth.instance.currentUser;
-          if (user != null) {
-            final prefs = await SharedPreferences.getInstance();
-            final String keyPuntos = 'puntos_${user.uid}';
+          final prefs = await SharedPreferences.getInstance();
+          final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
+          final String? userUniqueId = user?.uid ?? (email != null && email.isNotEmpty ? email : null);
+          if (userUniqueId != null) {
+            final String keyPuntos = 'puntos_$userUniqueId';
             final int puntosActuales = prefs.getInt(keyPuntos) ?? 0;
             await prefs.setInt(keyPuntos, puntosActuales + puntosGanadosRecarga);
 
@@ -1178,7 +1192,7 @@ class _PagosPageState extends State<PagosPage> {
             final rawToken = prefs.getString('access_token');
             if (rawToken != null && rawToken.trim().isNotEmpty) {
               final token = rawToken.trim();
-              final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/progreso/sumar/');
+              final uri = Uri.parse('${ApiConstants.baseUrl}/bubblesplash/progreso/sumar/');
               final body = jsonEncode({
                 'points': puntosGanadosRecarga,
               });

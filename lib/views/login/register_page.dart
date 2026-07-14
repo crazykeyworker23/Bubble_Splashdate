@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../constants/api_constants.dart';
+import '../../services/fcm_service.dart';
+import 'home_page.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({Key? key}) : super(key: key);
@@ -293,21 +295,94 @@ class _RegisterPageState extends State<RegisterPage> {
         body: jsonEncode(body),
       );
       if (res.statusCode == 201 || res.statusCode == 200) {
-        // Guardar el nombre completo en SharedPreferences para mostrarlo en el header
-        final prefs = await SharedPreferences.getInstance();
+        final email = _emailController.text.trim();
+        final password = _passwordController.text.trim();
         final fullName = _fullnameController.text.trim();
+
+        // Guardar el nombre completo y datos iniciales en SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        if (!mounted) return;
         await prefs.setString('google_name', fullName);
         await prefs.setString('use_txt_fullname', fullName);
+        if (!mounted) return;
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('¡Registro exitoso!')),
+          const SnackBar(content: Text('¡Registro exitoso! Iniciando sesión...')),
         );
-        Navigator.pop(context);
+
+        // Realizar login automático
+        try {
+          final loginUrl = Uri.parse('${ApiConstants.baseUrl}/auth/login/');
+          final loginBody = {'username': email, 'password': password};
+
+          final loginRes = await http.post(
+            loginUrl,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(loginBody),
+          );
+
+          if (loginRes.statusCode == 200) {
+            final dynamic decoded = jsonDecode(loginRes.body);
+            if (decoded is Map<String, dynamic>) {
+              final dynamic tokenContainer =
+                  (decoded['data'] is Map<String, dynamic>) ? decoded['data'] : decoded;
+
+              final dynamic accessRaw = tokenContainer['access'] ??
+                  tokenContainer['access_token'] ??
+                  tokenContainer['token'];
+              final dynamic refreshRaw =
+                  tokenContainer['refresh'] ?? tokenContainer['refresh_token'];
+
+              final String accessToken = accessRaw?.toString().trim() ?? '';
+              final String refreshToken = refreshRaw?.toString().trim() ?? '';
+
+              if (accessToken.isNotEmpty) {
+                // Guardar tokens y estado de sesión
+                await Future.wait([
+                  prefs.remove('google_id'),
+                  prefs.remove('google_id_token'),
+                  prefs.setString('access_token', accessToken),
+                  if (refreshToken.isNotEmpty) prefs.setString('refresh_token', refreshToken),
+                  prefs.setString('google_email', email),
+                  prefs.setString('savedEmail', email),
+                  prefs.setBool('rememberMe', true),
+                  prefs.setBool('isLoggedIn', true),
+                ]);
+
+                await FcmService.initAndSendTokenIfPossible();
+
+                if (!mounted) return;
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const HomePage()),
+                  (route) => false,
+                );
+                return;
+              }
+            }
+          }
+          // Fallback a login manual si el auto-login falla
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Registro exitoso. Inicia sesión manualmente.')),
+          );
+          Navigator.pop(context);
+        } catch (loginError) {
+          debugPrint('❌ Error en login automático post-registro: $loginError');
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Registro exitoso. Inicia sesión manualmente.')),
+          );
+          Navigator.pop(context);
+        }
       } else {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: ${res.body}'), backgroundColor: Colors.red),
         );
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );

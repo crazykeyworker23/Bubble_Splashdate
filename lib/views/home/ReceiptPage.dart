@@ -144,6 +144,16 @@ class _ReceiptPageState extends State<ReceiptPage> {
           ? user.displayName
           : (user.email ?? 'Cliente');
     } else {
+      SharedPreferences.getInstance().then((prefs) {
+        final name = prefs.getString('use_txt_fullname') ?? prefs.getString('google_name') ?? prefs.getString('google_email');
+        if (name != null && name.isNotEmpty) {
+          if (mounted) {
+            setState(() {
+              _nombreCliente = name;
+            });
+          }
+        }
+      });
       _nombreCliente = 'Cliente';
     }
 
@@ -166,7 +176,9 @@ class _ReceiptPageState extends State<ReceiptPage> {
     // Registrar movimiento de compra en el historial del usuario
     final prefs = await SharedPreferences.getInstance();
     final user = FirebaseAuth.instance.currentUser;
-    final String? keyMovs = user != null ? 'movimientos_${user.uid}' : null;
+    final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
+    final String? userUniqueId = user?.uid ?? (email != null && email.isNotEmpty ? email : null);
+    final String? keyMovs = userUniqueId != null ? 'movimientos_$userUniqueId' : null;
     final List<String> data = keyMovs != null
         ? (prefs.getStringList(keyMovs) ?? [])
         : <String>[];
