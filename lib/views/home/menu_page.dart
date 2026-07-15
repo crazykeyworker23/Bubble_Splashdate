@@ -10,6 +10,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'CartPage.dart';
 import 'package:bubblesplash/utils/route_observer.dart';
 import 'package:bubblesplash/services/auth_service.dart';
+import 'package:bubblesplash/services/menu_prefetcher.dart';
 import 'package:bubblesplash/constants/backend_config.dart';
 import '../../constants/api_constants.dart';
 import 'package:bubblesplash/widgets/connection_error_dialog.dart';
@@ -380,6 +381,12 @@ class _MenuPageState extends State<MenuPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+    // Si ya tenemos categorías en memoria, usarlas de inmediato para evitar el estado "cargando..."
+    if (MenuPrefetcher.inMemoryCategories.isNotEmpty) {
+      _categories = MenuPrefetcher.inMemoryCategories;
+      _isLoadingProducts = false;
+      _selectedCategoryId = _categories.first.id;
+    }
 
     _cargarPedidosGuardados();
     _cargarCategorias();
@@ -592,6 +599,7 @@ class _MenuPageState extends State<MenuPage>
         final categories = await compute(_parseCategoriesIsolate, cached);
 
         if (!mounted) return;
+        MenuPrefetcher.inMemoryCategories = categories;
         setState(() {
           _categories = categories;
           _isLoadingProducts = false;
@@ -776,6 +784,7 @@ class _MenuPageState extends State<MenuPage>
         }
       }
 
+      MenuPrefetcher.inMemoryCategories = parsedCategories;
       setState(() {
         if (!same) _categories = parsedCategories;
         if (_selectedCategoryId == null && _categories.isNotEmpty) {

@@ -29,6 +29,7 @@ class _CartPageState extends State<CartPage> {
   late List<Map<String, dynamic>> pedidos;
   String selectedDineOption = 'En el Local';
   double get _descuento => widget.descuento;
+  bool _isProcessingPago = false;
 
   // =========================
   // ✅ MODAL PREMIUM (reemplaza SnackBar)
@@ -1130,200 +1131,209 @@ class _CartPageState extends State<CartPage> {
                   width: double.infinity,
                   height: 55,
                   child: ElevatedButton(
-                    onPressed: totalItems > 0
+                    onPressed: (totalItems > 0 && !_isProcessingPago)
                         ? () async {
-                            final confirm = await showDialog<bool>(
-                              context: context,
-                              barrierDismissible: false,
-                              builder: (c) => Dialog(
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                backgroundColor: Colors.white,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                    vertical: 28,
+                            setState(() => _isProcessingPago = true);
+                            try {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                barrierDismissible: false,
+                                builder: (c) => Dialog(
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20),
                                   ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.payments_rounded,
-                                        size: 60,
-                                        color: Color(0xFF42A5F5),
-                                      ),
-                                      const SizedBox(height: 16),
-                                      const Text(
-                                        'Confirmar pago',
-                                        style: TextStyle(
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFF1B6F81),
+                                  backgroundColor: Colors.white,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 24,
+                                      vertical: 28,
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.payments_rounded,
+                                          size: 60,
+                                          color: Color(0xFF42A5F5),
                                         ),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Text(
-                                        '¿Deseas pagar S/. ${_totalPrice.toStringAsFixed(2)}?',
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          color: Colors.black87,
+                                        const SizedBox(height: 16),
+                                        const Text(
+                                          'Confirmar pago',
+                                          style: TextStyle(
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF1B6F81),
+                                          ),
                                         ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      const SizedBox(height: 24),
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: OutlinedButton(
-                                              style: OutlinedButton.styleFrom(
-                                                foregroundColor: const Color(
-                                                  0xFF1B6F81,
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          '¿Deseas pagar S/. ${_totalPrice.toStringAsFixed(2)}?',
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            color: Colors.black87,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        const SizedBox(height: 24),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: OutlinedButton(
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor: const Color(
+                                                    0xFF1B6F81,
+                                                  ),
+                                                  side: const BorderSide(
+                                                    color: Color(0xFF1B6F81),
+                                                    width: 2,
+                                                  ),
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(12),
+                                                  ),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        vertical: 14,
+                                                      ),
                                                 ),
-                                                side: const BorderSide(
-                                                  color: Color(0xFF1B6F81),
-                                                  width: 2,
-                                                ),
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                ),
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      vertical: 14,
-                                                    ),
-                                              ),
-                                              onPressed: () =>
-                                                  Navigator.pop(c, false),
-                                              child: const Text(
-                                                'Cancelar',
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
+                                                onPressed: () =>
+                                                    Navigator.pop(c, false),
+                                                child: const Text(
+                                                  'Cancelar',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
                                                 ),
                                               ),
                                             ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: ElevatedButton(
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: const Color(
-                                                  0xFF42A5F5,
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: ElevatedButton(
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: const Color(
+                                                    0xFF42A5F5,
+                                                  ),
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(12),
+                                                  ),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        vertical: 14,
+                                                      ),
                                                 ),
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                ),
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      vertical: 14,
-                                                    ),
-                                              ),
-                                              onPressed: () =>
-                                                  Navigator.pop(c, true),
-                                              child: const Text(
-                                                'Pagar',
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.white,
+                                                onPressed: () =>
+                                                    Navigator.pop(c, true),
+                                                child: const Text(
+                                                  'Pagar',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                  ),
                                                 ),
                                               ),
                                             ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                                          ],
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                            );
-                            if (confirm != true) return;
-
-                            final double? saldoAntes = await _getSaldoBackend();
-
-                            final tieneSaldo =
-                                await _verificarSaldoSuficiente();
-                            if (!tieneSaldo) return;
-
-                            final pedidoData = await _crearPedidoBackend();
-                            if (pedidoData == null) return;
-
-                            final double? saldoDespues =
-                                await _getSaldoBackend();
-                            if (saldoAntes != null && saldoDespues != null) {
-                              final double descontado =
-                                  (saldoAntes - saldoDespues);
-                              debugPrint(
-                                'DIAGNÓSTICO COBRO: appTotal=S/. ${_totalPrice.toStringAsFixed(2)} | serverDelta=S/. ${descontado.toStringAsFixed(2)}',
                               );
+                              if (confirm != true) return;
 
-                              if (mounted &&
-                                  (descontado - _totalPrice).abs() > 0.01) {
-                                await _showPremiumModal(
-                                  title: 'Desajuste en el cobro',
-                                  message:
-                                      'Se descontó S/. ${descontado.toStringAsFixed(2)} desde la billetera, '
-                                      'pero el total de tu pedido es S/. ${_totalPrice.toStringAsFixed(2)}.\n\n'
-                                      'Por seguridad, no se marcará este pedido como pagado en la app. '
-                                      'Por favor informa a un encargado para revisar el backend.',
-                                  icon: Icons.warning_rounded,
-                                  accent: const Color(0xFFE53935),
+                              final double? saldoAntes = await _getSaldoBackend();
+
+                              final tieneSaldo =
+                                  await _verificarSaldoSuficiente();
+                              if (!tieneSaldo) return;
+
+                              final pedidoData = await _crearPedidoBackend();
+                              if (pedidoData == null) return;
+
+                              final double? saldoDespues =
+                                  await _getSaldoBackend();
+                              if (saldoAntes != null && saldoDespues != null) {
+                                final double descontado =
+                                    (saldoAntes - saldoDespues);
+                                debugPrint(
+                                  'DIAGNÓSTICO COBRO: appTotal=S/. ${_totalPrice.toStringAsFixed(2)} | serverDelta=S/. ${descontado.toStringAsFixed(2)}',
                                 );
 
-                                // No continuar al comprobante si el backend cobró menos
-                                return;
+                                if (mounted &&
+                                    (descontado - _totalPrice).abs() > 0.01) {
+                                  await _showPremiumModal(
+                                    title: 'Desajuste en el cobro',
+                                    message:
+                                        'Se descontó S/. ${descontado.toStringAsFixed(2)} desde la billetera, '
+                                        'pero el total de tu pedido es S/. ${_totalPrice.toStringAsFixed(2)}.\n\n'
+                                        'Por seguridad, no se marcará este pedido como pagado en la app. '
+                                        'Por favor informa a un encargado para revisar el backend.',
+                                    icon: Icons.warning_rounded,
+                                    accent: const Color(0xFFE53935),
+                                  );
+
+                                  // No continuar al comprobante si el backend cobró menos
+                                  return;
+                                }
+                              }
+
+                              final List<Map<String, dynamic>> finalPedidosCopy =
+                                  pedidos
+                                      .map((e) => Map<String, dynamic>.from(e))
+                                      .toList();
+
+                              final double localSubtotal = _totalPrice;
+
+                              String? backendDate;
+                              String? backendTime;
+                              final String ts =
+                                  (pedidoData['timestamp_datecreate'] ?? '')
+                                      .toString();
+                              if (ts.isNotEmpty) {
+                                try {
+                                  final dt = DateTime.parse(ts);
+                                  backendDate =
+                                      '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+                                  backendTime =
+                                      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                                } catch (_) {}
+                              }
+
+                              final String orderNumber =
+                                  (pedidoData['ped_txt_number'] ?? '').toString();
+
+                              final prefs = await SharedPreferences.getInstance();
+                              await prefs.remove('cart_pedidos');
+
+                              if (mounted) {
+                                setState(() => pedidos.clear());
+                              }
+
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ReceiptPage(
+                                    finalPedidos: finalPedidosCopy,
+                                    dineOption: selectedDineOption,
+                                    subtotal: localSubtotal,
+                                    backendOrderNumber: orderNumber.isNotEmpty
+                                        ? orderNumber
+                                        : null,
+                                    backendDate: backendDate,
+                                    backendTime: backendTime,
+                                    alreadyPaid: true,
+                                    applyWalletDeduction: true,
+                                  ),
+                                ),
+                              );
+                            } catch (e) {
+                              debugPrint('Error procesando pago: $e');
+                            } finally {
+                              if (mounted) {
+                                setState(() => _isProcessingPago = false);
                               }
                             }
-
-                            final List<Map<String, dynamic>> finalPedidosCopy =
-                                pedidos
-                                    .map((e) => Map<String, dynamic>.from(e))
-                                    .toList();
-
-                            final double localSubtotal = _totalPrice;
-
-                            String? backendDate;
-                            String? backendTime;
-                            final String ts =
-                                (pedidoData['timestamp_datecreate'] ?? '')
-                                    .toString();
-                            if (ts.isNotEmpty) {
-                              try {
-                                final dt = DateTime.parse(ts);
-                                backendDate =
-                                    '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-                                backendTime =
-                                    '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-                              } catch (_) {}
-                            }
-
-                            final String orderNumber =
-                                (pedidoData['ped_txt_number'] ?? '').toString();
-
-                            final prefs = await SharedPreferences.getInstance();
-                            await prefs.remove('cart_pedidos');
-
-                            if (mounted) {
-                              setState(() => pedidos.clear());
-                            }
-
-                            Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ReceiptPage(
-                                  finalPedidos: finalPedidosCopy,
-                                  dineOption: selectedDineOption,
-                                  subtotal: localSubtotal,
-                                  backendOrderNumber: orderNumber.isNotEmpty
-                                      ? orderNumber
-                                      : null,
-                                  backendDate: backendDate,
-                                  backendTime: backendTime,
-                                  alreadyPaid: true,
-                                  applyWalletDeduction: true,
-                                ),
-                              ),
-                            );
                           }
                         : null,
                     style: ElevatedButton.styleFrom(
@@ -1332,16 +1342,25 @@ class _CartPageState extends State<CartPage> {
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    child: Text(
-                      'Pagar',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white.withOpacity(
-                          totalItems > 0 ? 1.0 : 0.7,
-                        ),
-                      ),
-                    ),
+                    child: _isProcessingPago
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2.5,
+                            ),
+                          )
+                        : Text(
+                            'Pagar',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white.withOpacity(
+                                totalItems > 0 ? 1.0 : 0.7,
+                              ),
+                            ),
+                          ),
                   ),
                 ),
               ],

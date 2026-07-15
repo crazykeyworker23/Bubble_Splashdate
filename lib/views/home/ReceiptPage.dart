@@ -203,8 +203,8 @@ class _ReceiptPageState extends State<ReceiptPage> {
       await prefs.setStringList(keyMovs, data);
     }
 
-    // Acumular puntos por compra: 1 punto por cada sol de6l total
-    final String? keyPuntos = user != null ? 'puntos_${user.uid}' : null;
+    // Acumular puntos por compra: 1 punto por cada sol del total
+    final String? keyPuntos = userUniqueId != null ? 'puntos_$userUniqueId' : null;
     final int puntosActuales = keyPuntos != null
         ? (prefs.getInt(keyPuntos) ?? 0)
         : 0;

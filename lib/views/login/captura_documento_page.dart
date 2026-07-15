@@ -18,7 +18,11 @@ class _CapturaDocumentoPageState extends State<CapturaDocumentoPage> {
   final ImagePicker _picker = ImagePicker();
 
   Future<void> _pickImage(bool isSelfie) async {
-    final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
+    final XFile? photo = await _picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 80);
     if (photo != null) {
       setState(() {
         if (isSelfie) {
@@ -225,7 +229,11 @@ class _CapturaRostroPageState extends State<CapturaRostroPage> {
   final ImagePicker _picker = ImagePicker();
 
   Future<void> _capturarRostro() async {
-    final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
+    final XFile? photo = await _picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 80);
     if (photo != null) {
       setState(() {
         _faceImage = File(photo.path);

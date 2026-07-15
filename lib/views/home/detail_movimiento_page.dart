@@ -615,13 +615,22 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
     final esRecarga = movimiento.tipo == 'recarga';
     final esGasto = movimiento.tipo == 'gasto';
     final esCompra = movimiento.tipo == 'compra';
+    final monto = movimiento.monto;
+
+    final List<dynamic> displayItems = List.from(rawItems);
+    if (displayItems.isEmpty && (esGasto || esCompra)) {
+      displayItems.add({
+        'name': 'Consumo de productos',
+        'quantity': 1,
+        'price': monto,
+      });
+    }
+
     // Consideramos "Pedido" cuando viene de la app de pedidos o cuando
     // el método registrado es "Compra de productos" (caso historial).
     final esPedido =
-      (orderId.isNotEmpty && rawItems.isNotEmpty) ||
+      (orderId.isNotEmpty && displayItems.isNotEmpty) ||
       metodo.toLowerCase().contains('compra de productos');
-
-    final monto = movimiento.monto;
 
     final String tituloPantalla = esRecarga
       ? 'Comprobante de Recarga'
@@ -944,9 +953,9 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
               ),
 
             // =========================
-            // ✅ COMPRA o GASTO (CON ITEMS => BOLETA)
+            // ✅ COMPRA o GASTO (BOLETA TICKET)
             // =========================
-            if ((esGasto || esCompra) && rawItems.isNotEmpty)
+            if (esGasto || esCompra)
               Column(
                 children: [
                   RepaintBoundary(
@@ -1110,7 +1119,7 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
 
                             if (dineOption.isNotEmpty) const SizedBox(height: 20),
 
-                            ...rawItems.map((item) {
+                            ...displayItems.map((item) {
                               final map = item as Map<String, dynamic>;
                               final String name = (map['name'] ?? 'Producto').toString();
 
@@ -1296,7 +1305,7 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                                 ),
                               ),
                               onPressed: () => _descargarPdf(
-                                rawItems: rawItems,
+                                rawItems: displayItems,
                                 cliente: cliente,
                                 orderId: orderId,
                                 fechaSolo: fechaSolo,
@@ -1342,7 +1351,7 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
             // =========================
             // ✅ GASTO (SIN ITEMS)
             // =========================
-            if (esGasto && rawItems.isEmpty)
+            if (esGasto && rawItems.isEmpty && false)
               Padding(
                 padding: const EdgeInsets.all(20),
                 child: (metodo == 'Pago QR')

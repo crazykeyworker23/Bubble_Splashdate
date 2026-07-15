@@ -22,6 +22,7 @@ class _CanjearPuntosPageState extends State<CanjearPuntosPage> {
 
   final TextEditingController _controller = TextEditingController();
   final ConfettiController _confettiController = ConfettiController(duration: const Duration(seconds: 2));
+  bool _isProcessingRedeem = false;
 
   @override
   void dispose() {
@@ -175,26 +176,45 @@ class _CanjearPuntosPageState extends State<CanjearPuntosPage> {
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              onPressed: () async {
-                FocusScope.of(context).unfocus();
-                final code = _controller.text.trim();
+              onPressed: _isProcessingRedeem
+                  ? null
+                  : () async {
+                      FocusScope.of(context).unfocus();
+                      final code = _controller.text.trim();
 
-                if (code.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Por favor, ingresa un código para canjear.')),
-                  );
-                  return;
-                }
-                await _redeemPromoCode(context, code);
-              },
-              child: const Text(
-                'Canjear',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                ),
-              ),
+                      if (code.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Por favor, ingresa un código para canjear.')),
+                        );
+                        return;
+                      }
+
+                      setState(() => _isProcessingRedeem = true);
+                      try {
+                        await _redeemPromoCode(context, code);
+                      } finally {
+                        if (mounted) {
+                          setState(() => _isProcessingRedeem = false);
+                        }
+                      }
+                    },
+              child: _isProcessingRedeem
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      'Canjear',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
             ),
           ),
         ],
@@ -273,6 +293,8 @@ class _CanjearPuntosPageState extends State<CanjearPuntosPage> {
                 'Authorization': 'Bearer $rawToken',
               },
             );
+            debugPrint('GET bubblesplash/progreso/ (canje) status: ${progResponse.statusCode}');
+            debugPrint('GET bubblesplash/progreso/ (canje) body: ${progResponse.body}');
             if (progResponse.statusCode == 200) {
               final dynamic body = jsonDecode(progResponse.body);
               if (body is Map<String, dynamic>) {

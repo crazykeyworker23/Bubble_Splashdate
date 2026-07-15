@@ -150,21 +150,48 @@ class _MovimientosPageState extends State<MovimientosPage> {
     List<Map<String, dynamic>> api,
   ) {
     final out = <Map<String, dynamic>>[];
-    final seen = <String>{};
+    final seenKeys = <String>{};
+    final seenOrderIds = <int>{};
 
-    void addAll(List<Map<String, dynamic>> src) {
-      for (final m in src) {
-        final key = _dedupeKey(m);
-        if (seen.add(key)) {
-          out.add(m);
-        }
+    // Primero agregamos todos los locales (tienen prioridad porque son más ricos en detalles)
+    for (final m in locales) {
+      final normalized = _normalizeMonto(m);
+      final key = _dedupeKey(normalized);
+      seenKeys.add(key);
+
+      final int orderId = _asInt(normalized['orderId'] ?? normalized['order_id']);
+      if (orderId > 0) {
+        seenOrderIds.add(orderId);
       }
+      out.add(normalized);
     }
 
-    // Preferimos los movimientos locales porque contienen datos para reconstruir boletas (items, cliente, etc.)
-    // y recalculamos el monto real desde los items.
-    addAll(locales.map(_normalizeMonto).toList());
-    addAll(api);
+    // Luego agregamos los de la API si no están ya representados localmente
+    for (final m in api) {
+      final key = _dedupeKey(m);
+      if (seenKeys.contains(key)) continue;
+
+      final int? apiOrderId = m['apiOrderId'] as int?;
+      if (apiOrderId != null && seenOrderIds.contains(apiOrderId)) {
+        // Ya existe una transacción local para este mismo pedido
+        continue;
+      }
+
+      // O si el método o referencia contiene "pedido #XXXX" o similar y coincide
+      final String ref = (m['referencia'] ?? '').toString();
+      final String method = (m['metodo'] ?? '').toString();
+      bool isDup = false;
+      for (final seenId in seenOrderIds) {
+        if (ref.contains('#$seenId') || method.contains('#$seenId')) {
+          isDup = true;
+          break;
+        }
+      }
+      if (isDup) continue;
+
+      seenKeys.add(key);
+      out.add(m);
+    }
 
     out.sort((a, b) => _parseFechaMovimiento(b).compareTo(_parseFechaMovimiento(a)));
     return out;
@@ -188,20 +215,15 @@ class _MovimientosPageState extends State<MovimientosPage> {
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
 
-        // Solo usamos de la API los movimientos de tipo RECARGA.
-        // Los gastos (compras/pagos de pedido) ya se registran de forma local
-        // en ReceiptPage y ScannerPage, y mostrarlos de la API duplica
-        // comprobantes como "Pago de pedido".
         apiMovimientos = data.whereType<Map<String, dynamic>>().map((item) {
           final String rawType = (item['wmv_txt_type'] ?? '').toString();
           final bool esRecarga = rawType.toUpperCase() == 'RECARGA';
 
-          if (!esRecarga) return null; // Ignoramos gastos de la API
-
           final String amountStr = (item['wmv_de_amount'] ?? '0').toString();
-          final double monto = double.tryParse(amountStr) ?? 0.0;
+          final double monto = (double.tryParse(amountStr) ?? 0.0).abs();
           final String descripcion = (item['wmv_txt_description'] ?? '').toString();
           final String fechaIso = (item['timestamp_datecreate'] ?? '').toString();
+          final String id = (item['wmv_int_id'] ?? '').toString();
 
           String fecha = fechaIso;
           if (fechaIso.contains('T')) {
@@ -212,15 +234,33 @@ class _MovimientosPageState extends State<MovimientosPage> {
             }
           }
 
-          final String id = (item['wmv_int_id'] ?? '').toString();
-          return <String, dynamic>{
-            'tipo': 'recarga',
-            'monto': monto,
-            'metodo': descripcion,
-            'referencia': id,
-            'fecha': fecha,
-            'codigo': 'MOV$id',
-          };
+          if (esRecarga) {
+            return <String, dynamic>{
+              'tipo': 'recarga',
+              'monto': monto,
+              'metodo': descripcion,
+              'referencia': id,
+              'fecha': fecha,
+              'codigo': 'MOV$id',
+            };
+          } else {
+            // Es un gasto (compra)
+            int? apiOrderId;
+            final match = RegExp(r'#(\d+)').firstMatch(descripcion);
+            if (match != null) {
+              apiOrderId = int.tryParse(match.group(1) ?? '');
+            }
+
+            return <String, dynamic>{
+              'tipo': 'gasto',
+              'monto': monto,
+              'metodo': descripcion.isNotEmpty ? descripcion : 'Compra de productos',
+              'referencia': 'MOV$id',
+              'fecha': fecha,
+              'codigo': 'MOV$id',
+              'apiOrderId': apiOrderId,
+            };
+          }
         }).whereType<Map<String, dynamic>>().toList();
       } else {
         debugPrint(

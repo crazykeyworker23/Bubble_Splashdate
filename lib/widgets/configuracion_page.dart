@@ -162,15 +162,15 @@ class ConfiguracionPage extends StatelessWidget {
               ),
             ),
             _divider(),
-            _opcionItem(
-              icon: Icons.lock_outline,
-              text: 'Seguridad',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SeguridadPage()),
-              ),
-            ),
-            _divider(),
+            // _opcionItem(
+            //   icon: Icons.lock_outline,
+            //   text: 'Seguridad',
+            //   onTap: () => Navigator.push(
+            //     context,
+            //     MaterialPageRoute(builder: (_) => const SeguridadPage()),
+            //   ),
+            // ),
+            // _divider(),
             _opcionItem(
               icon: Icons.card_giftcard_outlined,
               text: 'Canjear puntos',
@@ -180,17 +180,17 @@ class ConfiguracionPage extends StatelessWidget {
               ),
             ),
             _divider(),
-            _opcionItem(
-              icon: Icons.notifications_active_outlined,
-              text: 'Simular notificación',
-              onTap: () {
-                InAppNotificationBanner.show(
-                  title: '¡Tu Bubble Tea está listo! 🥤',
-                  body: 'Tu pedido #48291 ha sido preparado y está listo para retirar en la barra.',
-                );
-              },
-            ),
-            _divider(),
+            // _opcionItem(
+            //   icon: Icons.notifications_active_outlined,
+            //   text: 'Simular notificación',
+            //   onTap: () {
+            //     InAppNotificationBanner.show(
+            //       title: '¡Tu Bubble Tea está listo! 🥤',
+            //       body: 'Tu pedido #48291 ha sido preparado y está listo para retirar en la barra.',
+            //     );
+            //   },
+            // ),
+            // _divider(),
             _opcionItem(
               icon: Icons.description_outlined,
               text: 'Términos y condiciones',
@@ -199,16 +199,16 @@ class ConfiguracionPage extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const TerminosPage()),
               ),
             ),
-            _divider(),
-            _opcionItem(
-              icon: Icons.delete_outline,
-              text: 'Eliminar Cuenta',
-              color: Colors.red,
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const EliminarCuentaPage()),
-              ),
-            ),
+            // _divider(),
+            // _opcionItem(
+            //   icon: Icons.delete_outline,
+            //   text: 'Eliminar Cuenta',
+            //   color: Colors.red,
+            //   onTap: () => Navigator.push(
+            //     context,
+            //     MaterialPageRoute(builder: (_) => const EliminarCuentaPage()),
+            //   ),
+            // ),
           ],
         ),
       ),

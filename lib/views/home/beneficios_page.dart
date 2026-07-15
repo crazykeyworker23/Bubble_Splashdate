@@ -453,6 +453,9 @@ class _BeneficiosPageState extends State<BeneficiosPage>
           },
         );
 
+        debugPrint('GET bubblesplash/progreso/ status: ${response.statusCode}');
+        debugPrint('GET bubblesplash/progreso/ body: ${response.body}');
+
         if (response.statusCode == 200) {
           final dynamic body = jsonDecode(response.body);
           int backendPoints = 0;
@@ -487,7 +490,8 @@ class _BeneficiosPageState extends State<BeneficiosPage>
         puntos = storedPoints;
         _actualizarNivelYProgreso();
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('❌ Excepción en _cargarPuntos: $e');
       final int storedPoints = prefs.getInt(keyPuntos) ?? 0;
       if (!mounted) return;
       setState(() {

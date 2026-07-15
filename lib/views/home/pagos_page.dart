@@ -924,17 +924,16 @@ class _PagosPageState extends State<PagosPage> {
         if (response.statusCode == 200) {
           final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
 
-          // Igual que en MovimientosPage: solo usamos RECARGA desde la API.
           apiMovimientos = data.whereType<Map<String, dynamic>>().map((item) {
             final String rawType = (item['wmv_txt_type'] ?? '').toString();
             final bool esRecarga = rawType.toUpperCase() == 'RECARGA';
-            if (!esRecarga) return null; // ignorar gastos de la API
 
             final String amountStr = (item['wmv_de_amount'] ?? '0').toString();
-            final double monto = double.tryParse(amountStr) ?? 0.0;
+            final double monto = (double.tryParse(amountStr) ?? 0.0).abs();
 
             final String descripcion = (item['wmv_txt_description'] ?? '').toString();
             final String fechaIso = (item['timestamp_datecreate'] ?? '').toString();
+            final String id = (item['wmv_int_id'] ?? '').toString();
 
             String fecha = fechaIso;
             if (fechaIso.contains('T')) {
@@ -945,17 +944,35 @@ class _PagosPageState extends State<PagosPage> {
               }
             }
 
-            final String id = (item['wmv_int_id'] ?? '').toString();
+            if (esRecarga) {
+              return <String, dynamic>{
+                'tipo': 'recarga',
+                'monto': monto,
+                'metodo': descripcion,
+                'referencia': id,
+                'fecha': fecha,
+                'codigo': 'MOV$id',
+                'cliente': _nombreCliente ?? 'Cliente',
+              };
+            } else {
+              // Es un gasto (compra)
+              int? apiOrderId;
+              final match = RegExp(r'#(\d+)').firstMatch(descripcion);
+              if (match != null) {
+                apiOrderId = int.tryParse(match.group(1) ?? '');
+              }
 
-            return <String, dynamic>{
-              'tipo': 'recarga',
-              'monto': monto,
-              'metodo': descripcion,
-              'referencia': id,
-              'fecha': fecha,
-              'codigo': 'MOV$id',
-              'cliente': _nombreCliente ?? 'Cliente',
-            };
+              return <String, dynamic>{
+                'tipo': 'gasto',
+                'monto': monto,
+                'metodo': descripcion.isNotEmpty ? descripcion : 'Compra de productos',
+                'referencia': 'MOV$id',
+                'fecha': fecha,
+                'codigo': 'MOV$id',
+                'apiOrderId': apiOrderId,
+                'cliente': _nombreCliente ?? 'Cliente',
+              };
+            }
           }).whereType<Map<String, dynamic>>().toList();
         } else if (response.statusCode == 401) {
           debugPrint('Sesión expirada al consultar movimientos (preview)');
@@ -1056,20 +1073,47 @@ class _PagosPageState extends State<PagosPage> {
     List<Map<String, dynamic>> api,
   ) {
     final out = <Map<String, dynamic>>[];
-    final seen = <String>{};
+    final seenKeys = <String>{};
+    final seenOrderIds = <int>{};
 
-    void addAll(List<Map<String, dynamic>> src) {
-      for (final m in src) {
-        final key = _dedupeKeyPreview(m);
-        if (seen.add(key)) {
-          out.add(m);
-        }
+    // Primero agregamos todos los locales (tienen prioridad porque son más ricos en detalles)
+    for (final m in locales) {
+      final key = _dedupeKeyPreview(m);
+      seenKeys.add(key);
+
+      final int orderId = int.tryParse(m['orderId']?.toString() ?? m['order_id']?.toString() ?? '') ?? 0;
+      if (orderId > 0) {
+        seenOrderIds.add(orderId);
       }
+      out.add(m);
     }
 
-    // Preferimos los locales (tienen info de pedidos, items, etc.)
-    addAll(locales);
-    addAll(api);
+    // Luego agregamos los de la API si no están ya representados localmente
+    for (final m in api) {
+      final key = _dedupeKeyPreview(m);
+      if (seenKeys.contains(key)) continue;
+
+      final int? apiOrderId = m['apiOrderId'] as int?;
+      if (apiOrderId != null && seenOrderIds.contains(apiOrderId)) {
+        // Ya existe una transacción local para este mismo pedido
+        continue;
+      }
+
+      // O si el método o referencia contiene "pedido #XXXX" o similar y coincide
+      final String ref = (m['referencia'] ?? '').toString();
+      final String method = (m['metodo'] ?? '').toString();
+      bool isDup = false;
+      for (final seenId in seenOrderIds) {
+        if (ref.contains('#$seenId') || method.contains('#$seenId')) {
+          isDup = true;
+          break;
+        }
+      }
+      if (isDup) continue;
+
+      seenKeys.add(key);
+      out.add(m);
+    }
 
     out.sort((a, b) => _parseFechaMovimientoPreview(b).compareTo(_parseFechaMovimientoPreview(a)));
     return out;

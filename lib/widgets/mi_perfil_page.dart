@@ -511,7 +511,10 @@ class _MiPerfilPageState extends State<MiPerfilPage>
 
   Future<void> _pickAvatar() async {
     final XFile? picked = await _imagePicker.pickImage(
-        source: ImageSource.gallery, imageQuality: 88);
+        source: ImageSource.gallery,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 75);
     if (picked != null) {
       if (!mounted) return;
       HapticFeedback.selectionClick();

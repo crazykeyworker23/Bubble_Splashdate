@@ -5,6 +5,7 @@ import '/views/home/inicio_page.dart';
 import '/views/home/pagos_page.dart';
 import '/views/home/menu_page.dart';
 import '/views/home/beneficios_page.dart';
+import 'package:bubblesplash/services/menu_prefetcher.dart';
 
 // --- Painter (curva con notch) ---
 class WavyBottomBarPainter extends CustomPainter {
@@ -111,6 +112,8 @@ class _HomePageState extends State<HomePage> {
       const MenuPage(),
       const BeneficiosPage(),
     ];
+    // Precargar menú de productos de forma silenciosa en segundo plano
+    MenuPrefetcher.prefetchMenu();
   }
 
   void _onItemTapped(int index) => setState(() => _selectedIndex = index);
