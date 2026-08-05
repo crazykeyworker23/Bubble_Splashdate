@@ -55,6 +55,17 @@ class UserInfoService {
         final userId = data['use_int_id'];
         final srvId = data['srv_int_id'];
 
+        // Se guarda quién es. Sin este dato, lo que se cachea en el teléfono no
+        // se puede separar por persona: la única forma de que un usuario no
+        // viera los datos de otro era borrarlos al cerrar sesión, y entonces
+        // el propio dueño los perdía también.
+        if (userId != null) {
+          await prefs.setInt(
+            'user_id',
+            userId is int ? userId : int.tryParse(userId.toString()) ?? 0,
+          );
+        }
+
         if (userId != null && (srvId == null || srvId == 0)) {
           print('🔗 Usuario $userId no tiene sucursal asociada. Vinculando a sucursal 1...');
           final patchUrl = BackendConfig.api('auth/users/$userId/');

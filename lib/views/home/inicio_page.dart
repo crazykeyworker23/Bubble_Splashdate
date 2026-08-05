@@ -1,5 +1,8 @@
 // ignore_for_file: unused_import, prefer_const_constructors
 
+import 'package:bubblesplash/views/home/referidos_page.dart';
+import 'package:bubblesplash/constants/enlaces_app.dart';
+import 'package:bubblesplash/utils/carrito_promos.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
@@ -26,10 +29,12 @@ class _HorizontalCarouselMarcasAliadas extends StatefulWidget {
   const _HorizontalCarouselMarcasAliadas();
 
   @override
-  State<_HorizontalCarouselMarcasAliadas> createState() => _HorizontalCarouselMarcasAliadasState();
+  State<_HorizontalCarouselMarcasAliadas> createState() =>
+      _HorizontalCarouselMarcasAliadasState();
 }
 
-class _HorizontalCarouselMarcasAliadasState extends State<_HorizontalCarouselMarcasAliadas> {
+class _HorizontalCarouselMarcasAliadasState
+    extends State<_HorizontalCarouselMarcasAliadas> {
   late final ScrollController _scrollController;
   Timer? _timer;
   bool _isUserScrolling = false;
@@ -56,7 +61,9 @@ class _HorizontalCarouselMarcasAliadasState extends State<_HorizontalCarouselMar
     super.initState();
     // Duplicar los ítems para simular infinito
     _items = List.generate(100, (i) => _baseItems[i % _baseItems.length]);
-    _scrollController = ScrollController(initialScrollOffset: _baseItems.length * 80.0);
+    _scrollController = ScrollController(
+      initialScrollOffset: _baseItems.length * 80.0,
+    );
     _startAutoScroll();
   }
 
@@ -64,6 +71,7 @@ class _HorizontalCarouselMarcasAliadasState extends State<_HorizontalCarouselMar
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(milliseconds: 50), (_) {
       if (!mounted || _isUserScrolling) return;
+      if (!_scrollController.hasClients) return;
 
       final maxScroll = _scrollController.position.maxScrollExtent;
       final minScroll = 0.0;
@@ -125,14 +133,12 @@ class _HorizontalCarouselMarcasAliadasState extends State<_HorizontalCarouselMar
     );
   }
 }
+
 /// Imagen circular local para Marcas Aliadas
 class _LocalCircularImage extends StatelessWidget {
   final String assetPath;
   final String label;
-  const _LocalCircularImage({
-    required this.assetPath,
-    required this.label,
-  });
+  const _LocalCircularImage({required this.assetPath, required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -266,6 +272,17 @@ class _InicioPageState extends State<InicioPage> {
   bool _isDraggingFab = false;
   bool _didDragFab = false;
 
+  /// ¿Todavía puede canjear el código de quien lo invitó?
+  ///
+  /// Se muestra un aviso en el inicio mientras pueda. Quien entra con Google o
+  /// Apple no pasa por el formulario de registro, así que sin este aviso no se
+  /// entera nunca de que puede usar un código, y cuando lo descubra ya habrá
+  /// comprado y el sistema se lo rechazará por ser cliente antiguo.
+  ///
+  /// No hace falta poder cerrarlo: desaparece solo en cuanto usa un código o
+  /// hace su primera compra.
+  bool _puedeUsarCodigoReferido = false;
+
   @override
   void initState() {
     super.initState();
@@ -273,6 +290,7 @@ class _InicioPageState extends State<InicioPage> {
     _loadHomeData();
     _loadCartCount();
     _loadFabPosition();
+    _verificarCodigoReferido();
   }
 
   // =============================
@@ -280,6 +298,8 @@ class _InicioPageState extends State<InicioPage> {
   // =============================
   Future<List<Map<String, dynamic>>> _loadCartFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    // Esta pantalla abre el carrito SIN canje, así que cualquier precio
+    // promocional guardado se revierte antes de mostrarlo.
     final raw = prefs.getStringList('cart_pedidos') ?? <String>[];
 
     final items = <Map<String, dynamic>>[];
@@ -292,7 +312,9 @@ class _InicioPageState extends State<InicioPage> {
         }
       } catch (_) {}
     }
-    return items;
+    // Estas pantallas no manejan canje: se revierten los precios
+    // promocionales para que lo mostrado sea lo que cobrará el servidor.
+    return sanearCarritoGuardado(items, hayCanjeActivo: false);
   }
 
   Future<void> _saveCartToPrefs(List<Map<String, dynamic>> pedidos) async {
@@ -421,6 +443,13 @@ class _InicioPageState extends State<InicioPage> {
   // USER
   // =============================
   Future<void> _loadUserName() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isGuest = prefs.getBool('isGuest') ?? false;
+    if (isGuest) {
+      if (!mounted) return;
+      setState(() => _displayName = 'Invitado');
+      return;
+    }
     final fullName = await SessionManager.getFullName();
     if (!mounted) return;
 
@@ -468,11 +497,13 @@ class _InicioPageState extends State<InicioPage> {
       });
     }
 
+    bool isGuest = false;
     try {
+      isGuest = prefs.getBool('isGuest') ?? false;
       final rawToken = prefs.getString('access_token');
 
-      if (rawToken == null || rawToken.trim().isEmpty) {
-        // Si por algún motivo llegamos aquí sin token, aseguramos
+      if ((rawToken == null || rawToken.trim().isEmpty) && !isGuest) {
+        // Si por algún motivo llegamos aquí sin token y no es invitado, aseguramos
         // marcar la sesión como cerrada y redirigir al login.
         await prefs.setBool('isLoggedIn', false);
 
@@ -487,17 +518,28 @@ class _InicioPageState extends State<InicioPage> {
         return;
       }
 
-      final token = rawToken.trim();
+      final token = (rawToken ?? '').trim();
       final uri = BackendConfig.api('bubblesplash/home/');
 
-      http.Response response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
+      http.Response response;
+      if (token.isNotEmpty) {
+        response = await http.get(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        );
+      } else {
+        response = await http.get(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        );
+      }
 
       if (!mounted) return;
 
@@ -529,20 +571,24 @@ class _InicioPageState extends State<InicioPage> {
             unawaited(kBannerCacheManager.downloadFile(u));
           }
         }
-      } else if (response.statusCode == 401) {
-        setState(
-          () => _homeError = 'Sesión expirada. Inicia sesión nuevamente.',
-        );
+      } else if (response.statusCode == 401 && !isGuest) {
+        await prefs.setBool('isLoggedIn', false);
+        Navigator.pushReplacementNamed(context, AppRoutes.login);
       } else {
         if (_banners.isEmpty) {
-          setState(
-            () => _homeError =
-                'Error cargando home (${response.statusCode}). Intenta nuevamente.',
-          );
+          setState(() {
+            _homeError = isGuest
+                ? null
+                : 'Error cargando home (${response.statusCode}). Intenta nuevamente.';
+          });
         }
       }
     } catch (e) {
       if (!mounted) return;
+      if (isGuest) {
+        setState(() => _homeError = null);
+        return;
+      }
       final errStr = e.toString().toLowerCase();
       if (errStr.contains('socketexception') ||
           errStr.contains('failed host lookup') ||
@@ -574,6 +620,29 @@ class _InicioPageState extends State<InicioPage> {
     await _loadUserName();
     await _loadHomeData();
     await _loadCartCount();
+    await _verificarCodigoReferido();
+  }
+
+  /// Comprueba si al usuario aún le corresponde canjear un código de referido.
+  Future<void> _verificarCodigoReferido() async {
+    try {
+      final response = await http.get(
+        BackendConfig.api('bubblesplash/referidos/mi-codigo/'),
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': 'Bearer __placeholder__',
+        },
+      );
+      if (response.statusCode != 200) return;
+
+      final d = jsonDecode(response.body);
+      if (!mounted || d is! Map<String, dynamic>) return;
+      setState(
+        () => _puedeUsarCodigoReferido = d['puede_ingresar_codigo'] == true,
+      );
+    } catch (e) {
+      debugPrint('No se pudo comprobar el código de referido: $e');
+    }
   }
 
   @override
@@ -647,18 +716,39 @@ class _InicioPageState extends State<InicioPage> {
 
                       const SliverToBoxAdapter(child: SizedBox(height: 14)),
 
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: _QuickActionsRow(onTabChange: widget.onTabChange),
-                        ),
+                      FutureBuilder<bool>(
+                        future: SessionManager.isGuest(),
+                        builder: (context, snapshot) {
+                          final isGuest = snapshot.data ?? false;
+                          if (!isGuest)
+                            return const SliverToBoxAdapter(
+                              child: SizedBox.shrink(),
+                            );
+                          return const SliverToBoxAdapter(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 16),
+                              child: _GuestWelcomeBanner(),
+                            ),
+                          );
+                        },
                       ),
 
                       const SliverToBoxAdapter(child: SizedBox(height: 14)),
 
                       SliverToBoxAdapter(
-                        child: _buildInviteCard(context),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _QuickActionsRow(
+                            onTabChange: widget.onTabChange,
+                          ),
+                        ),
                       ),
+
+                      const SliverToBoxAdapter(child: SizedBox(height: 14)),
+
+                      if (_puedeUsarCodigoReferido)
+                        SliverToBoxAdapter(child: _buildAvisoReferido(context)),
+                      SliverToBoxAdapter(child: _buildInviteCard(context)),
 
                       const SliverToBoxAdapter(child: SizedBox(height: 14)),
 
@@ -848,6 +938,141 @@ class _InicioPageState extends State<InicioPage> {
     );
   }
 
+  /// Botón de la tarjeta de invitación.
+  ///
+  /// La etiqueta va dentro de un `FittedBox` con `scaleDown`: si el ancho se
+  /// queda corto, el texto se reduce un poco en lugar de recortarse o de
+  /// estirar el botón. El alto mínimo se mantiene para que siga siendo cómodo
+  /// de pulsar aunque el texto encoja.
+  Widget _botonInvitacion({
+    required String texto,
+    required IconData icono,
+    required bool primario,
+    required VoidCallback onPressed,
+  }) {
+    const Color color = Color(0xFF1B6F81);
+    final Color colorTexto = primario ? Colors.white : color;
+
+    final Widget contenido = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icono, size: 16, color: colorTexto),
+        const SizedBox(width: 8),
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              texto,
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(
+                color: colorTexto,
+                fontWeight: FontWeight.bold,
+                fontSize: 13.5,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    final ButtonStyle estilo = primario
+        ? ElevatedButton.styleFrom(
+            backgroundColor: color,
+            elevation: 0,
+            minimumSize: const Size(0, 46),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          )
+        : OutlinedButton.styleFrom(
+            side: const BorderSide(color: color, width: 1.2),
+            minimumSize: const Size(0, 46),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          );
+
+    return primario
+        ? ElevatedButton(onPressed: onPressed, style: estilo, child: contenido)
+        : OutlinedButton(onPressed: onPressed, style: estilo, child: contenido);
+  }
+
+  /// Aviso para canjear el código de quien te invitó.
+  ///
+  /// Solo aparece mientras el usuario cumple la condición; en cuanto usa un
+  /// código o hace su primera compra deja de mostrarse por sí solo.
+  Widget _buildAvisoReferido(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ReferidosPage()),
+          ).then((_) => _verificarCodigoReferido());
+        },
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF0F3D4A), Color(0xFF128FA0)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.card_giftcard_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '¿Te invitó un amigo?',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Ingresa su código y ganen puntos los dos',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: Colors.white),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildInviteCard(BuildContext context) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -919,59 +1144,85 @@ class _InicioPageState extends State<InicioPage> {
             ),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    SharePlus.instance.share(
-                      ShareParams(
-                        text: '¡Hola! Te invito a descargar Splash Bubble para disfrutar de las mejores bebidas. Al registrarte, busca el código promocional en los banners de novedades para obtener tus primeros puntos de regalo. Descarga la app aquí: https://play.google.com/store/apps/details?id=com.finatech.bubblesplash',
-                        subject: '¡Descarga Splash Bubble!',
-                      ),
-                    );
-                  },
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFF1B6F81), width: 1.2),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+
+          // Los dos botones se reparten el ancho SOLO si caben.
+          //
+          // Antes iban siempre en una fila de dos columnas con el texto fijo
+          // en 13,5. En un iPhone SE «Compartir Enlace» no entraba en su mitad
+          // y el botón se deformaba; con la letra del sistema agrandada pasaba
+          // lo mismo en casi todos los modelos. Cuando el ancho no alcanza se
+          // apilan a lo alto, que es preferible a recortar la etiqueta.
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const double separacion = 10;
+
+              final double anchoPorBoton =
+                  (constraints.maxWidth - separacion) / 2;
+
+              // Ancho que necesita la etiqueta más larga con el tamaño de
+              // letra real del dispositivo, más el icono y su separación.
+              final double necesario =
+                  MediaQuery.of(context).textScaler.scale(13.5) *
+                      'Compartir Enlace'.length *
+                      0.52 +
+                  16 +
+                  8;
+
+              final bool caben = anchoPorBoton >= necesario;
+
+              final Widget compartir = _botonInvitacion(
+                texto: 'Compartir Enlace',
+                icono: Icons.share_rounded,
+                primario: false,
+                onPressed: () {
+                  SharePlus.instance.share(
+                    ShareParams(
+                      text:
+                          '¡Hola! Te invito a descargar Splash Bubble para disfrutar de las '
+                          'mejores bebidas. Al registrarte, busca el código '
+                          'promocional en los banners de novedades para obtener '
+                          'tus primeros puntos de regalo.\n\n'
+                          '${EnlacesApp.descargas}',
+                      subject: '¡Descarga Splash Bubble!',
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  icon: const Icon(Icons.share_rounded, size: 16, color: Color(0xFF1B6F81)),
-                  label: const Text(
-                    "Compartir Enlace",
-                    style: TextStyle(color: Color(0xFF1B6F81), fontWeight: FontWeight.bold, fontSize: 13.5),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const CanjearPuntosPage()),
-                    ).then((_) {
-                      _refreshAll();
-                    });
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1B6F81),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                  );
+                },
+              );
+
+              final Widget codigo = _botonInvitacion(
+                texto: 'Canjear',
+                icono: Icons.confirmation_num_rounded,
+                primario: true,
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const CanjearPuntosPage(),
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  icon: const Icon(Icons.confirmation_num_rounded, size: 16, color: Colors.white),
-                  label: const Text(
-                    "Ingresar Código",
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5),
-                  ),
-                ),
-              ),
-            ],
+                  ).then((_) {
+                    _refreshAll();
+                  });
+                },
+              );
+
+              if (caben) {
+                return Row(
+                  children: [
+                    Expanded(child: compartir),
+                    const SizedBox(width: separacion),
+                    Expanded(child: codigo),
+                  ],
+                );
+              }
+
+              return Column(
+                children: [
+                  SizedBox(width: double.infinity, child: compartir),
+                  const SizedBox(height: separacion),
+                  SizedBox(width: double.infinity, child: codigo),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -1095,7 +1346,7 @@ class _QuickActionsRow extends StatelessWidget {
           _buildActionItem(
             context: context,
             icon: Icons.card_giftcard_rounded,
-            label: 'Cupones',
+            label: 'Ofertas',
             color: const Color(0xFF1B6F81),
             onTap: () {
               if (onTabChange != null) {
@@ -1144,10 +1395,14 @@ class _QuickActionsRow extends StatelessWidget {
               width: 50,
               height: 50,
               decoration: BoxDecoration(
-                color: isLocked ? Colors.grey.shade100 : color.withOpacity(0.08),
+                color: isLocked
+                    ? Colors.grey.shade100
+                    : color.withOpacity(0.08),
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: isLocked ? Colors.grey.shade200 : color.withOpacity(0.15),
+                  color: isLocked
+                      ? Colors.grey.shade200
+                      : color.withOpacity(0.15),
                   width: 1.2,
                 ),
               ),
@@ -1163,7 +1418,9 @@ class _QuickActionsRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: isLocked ? Colors.grey.shade500 : const Color(0xFF111827),
+                color: isLocked
+                    ? Colors.grey.shade500
+                    : const Color(0xFF111827),
               ),
             ),
           ],
@@ -1275,13 +1532,14 @@ class _ErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isSessionOrNetworkError = text.toLowerCase().contains('sesión') || 
-                                    text.toLowerCase().contains('token') ||
-                                    text.toLowerCase().contains('401') ||
-                                    text.toLowerCase().contains('unauthorized') ||
-                                    text.toLowerCase().contains('conexión') ||
-                                    text.toLowerCase().contains('internet') ||
-                                    text.toLowerCase().contains('servidor');
+    final isSessionOrNetworkError =
+        text.toLowerCase().contains('sesión') ||
+        text.toLowerCase().contains('token') ||
+        text.toLowerCase().contains('401') ||
+        text.toLowerCase().contains('unauthorized') ||
+        text.toLowerCase().contains('conexión') ||
+        text.toLowerCase().contains('internet') ||
+        text.toLowerCase().contains('servidor');
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1296,7 +1554,11 @@ class _ErrorCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 24),
+              const Icon(
+                Icons.error_outline_rounded,
+                color: Colors.redAccent,
+                size: 24,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
@@ -1320,7 +1582,11 @@ class _ErrorCard extends StatelessWidget {
                       padding: const EdgeInsets.only(right: 8),
                       child: ElevatedButton.icon(
                         onPressed: onRetry,
-                        icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
+                        icon: const Icon(
+                          Icons.refresh_rounded,
+                          color: Colors.white,
+                          size: 18,
+                        ),
                         label: const Text(
                           'Reintentar',
                           style: TextStyle(
@@ -1346,7 +1612,11 @@ class _ErrorCard extends StatelessWidget {
                       onPressed: () async {
                         await SessionManager.forceLogout();
                       },
-                      icon: const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 18),
+                      icon: const Icon(
+                        Icons.logout_rounded,
+                        color: Colors.redAccent,
+                        size: 18,
+                      ),
                       label: const Text(
                         'Cerrar sesión',
                         style: TextStyle(
@@ -1356,7 +1626,10 @@ class _ErrorCard extends StatelessWidget {
                         ),
                       ),
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Colors.redAccent, width: 1.2),
+                        side: const BorderSide(
+                          color: Colors.redAccent,
+                          width: 1.2,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -1525,7 +1798,8 @@ class _PremiumBannerCarouselState extends State<_PremiumBannerCarousel> {
           animation: _controller,
           builder: (context, _) {
             double page = 0.0;
-            if (_controller.hasClients && _controller.position.hasContentDimensions) {
+            if (_controller.hasClients &&
+                _controller.position.hasContentDimensions) {
               page = _controller.page ?? 0.0;
             }
             return Row(
@@ -1559,7 +1833,8 @@ class _KeepAliveWrapper extends StatefulWidget {
   State<_KeepAliveWrapper> createState() => _KeepAliveWrapperState();
 }
 
-class _KeepAliveWrapperState extends State<_KeepAliveWrapper> with AutomaticKeepAliveClientMixin {
+class _KeepAliveWrapperState extends State<_KeepAliveWrapper>
+    with AutomaticKeepAliveClientMixin {
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -1782,7 +2057,6 @@ class _HorizontalCarouselNovedadesState
   static const List<Map<String, String>> _baseItems = [
     {'asset': 'assets/fimos.jpg', 'label': 'Fimo'},
     {'asset': 'assets/bubble.png', 'label': 'Splash Bubble'},
-
   ];
   late final List<Map<String, String>> _items;
 
@@ -1791,7 +2065,9 @@ class _HorizontalCarouselNovedadesState
     super.initState();
     // Duplicar los ítems para simular infinito
     _items = List.generate(100, (i) => _baseItems[i % _baseItems.length]);
-    _scrollController = ScrollController(initialScrollOffset: _baseItems.length * 110.0);
+    _scrollController = ScrollController(
+      initialScrollOffset: _baseItems.length * 110.0,
+    );
     _startAutoScroll();
   }
 
@@ -1799,6 +2075,7 @@ class _HorizontalCarouselNovedadesState
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(milliseconds: 50), (_) {
       if (!mounted || _isUserScrolling) return;
+      if (!_scrollController.hasClients) return;
 
       final maxScroll = _scrollController.position.maxScrollExtent;
       final minScroll = 0.0;
@@ -1868,7 +2145,11 @@ class _HorizontalCarouselNovedadesState
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white, size: 32),
+                          icon: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 32,
+                          ),
                           onPressed: () => Navigator.of(context).pop(),
                         ),
                       ],
@@ -2101,14 +2382,20 @@ class _NetworkImagePremium extends StatelessWidget {
     if (u.isEmpty) return placeholder;
 
     // Detectar si realmente es base64 y no un URL largo de red
-    final bool isBase64 = u.startsWith('data:image') ||
-        (!u.startsWith('http') && !u.startsWith('/') && !u.startsWith('assets/') && u.length > 100);
+    final bool isBase64 =
+        u.startsWith('data:image') ||
+        (!u.startsWith('http') &&
+            !u.startsWith('/') &&
+            !u.startsWith('assets/') &&
+            u.length > 100);
 
     ImageProvider provider;
     if (isBase64) {
       try {
         final base64Str = u.contains(',') ? u.split(',').last : u;
-        final bytes = base64Decode(base64Str.replaceAll('\n', '').replaceAll('\r', '').trim());
+        final bytes = base64Decode(
+          base64Str.replaceAll('\n', '').replaceAll('\r', '').trim(),
+        );
         provider = MemoryImage(bytes);
       } catch (_) {
         return placeholder;
@@ -2294,4 +2581,82 @@ class _ShimmerPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _ShimmerPainter oldDelegate) =>
       oldDelegate.t != t;
+}
+
+class _GuestWelcomeBanner extends StatelessWidget {
+  const _GuestWelcomeBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1B6F81), Color(0xFF0F3D4A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1B6F81).withOpacity(0.2),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.stars_rounded, color: Colors.amber, size: 28),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '¡Únete a Splash Bubble!',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Estás navegando en modo invitado. Inicia sesión o regístrate para poder hacer pedidos, acumular puntos y disfrutar de increíbles beneficios.',
+            style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 40,
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.pushNamedAndRemoveUntil(
+                  context,
+                  '/login',
+                  (route) => false,
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF1B6F81),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
+              ),
+              child: const Text(
+                'Iniciar sesión',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

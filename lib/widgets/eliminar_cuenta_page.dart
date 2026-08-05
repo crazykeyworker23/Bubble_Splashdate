@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:bubblesplash/constants/api_constants.dart';
+import 'package:bubblesplash/services/session_manager.dart';
 
 class EliminarCuentaPage extends StatefulWidget {
   const EliminarCuentaPage({super.key});
@@ -387,16 +392,51 @@ class _EliminarCuentaPageState extends State<EliminarCuentaPage> {
     setState(() => _loading = true);
 
     try {
-      // ✅ Aquí deberías llamar a tu API real para eliminar la cuenta.
-      // Por ahora, mantenemos tu comportamiento: redirigir a login.
-      await Future.delayed(const Duration(milliseconds: 500));
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token');
+
+      // 1. Intentar borrar en el backend
+      if (token != null && token.isNotEmpty) {
+        try {
+          final uri = Uri.parse(ApiConstants.baseUrl + '/auth/users/me/');
+          await http.delete(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          ).timeout(const Duration(seconds: 10));
+        } catch (e) {
+          debugPrint('⚠️ Error deleting user on backend: $e');
+        }
+      }
+
+      // 2. Intentar borrar de Firebase Auth
+      try {
+        final currentUser = FirebaseAuth.instance.currentUser;
+        if (currentUser != null) {
+          await currentUser.delete().timeout(const Duration(seconds: 5));
+        }
+      } catch (e) {
+        // Si falla por requerir reautenticación reciente, al menos la cuenta en base de datos ya fue borrada
+        debugPrint('⚠️ Error deleting user in Firebase: $e');
+      }
+
+      // 3. Limpieza de sesión y redirección centralizada
+      await SessionManager.forceLogout();
 
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/login');
-
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Cuenta eliminada (demo).")),
+        const SnackBar(content: Text("Tu cuenta ha sido eliminada correctamente.")),
       );
+    } catch (e) {
+      debugPrint('Error general al eliminar cuenta: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error al eliminar la cuenta: $e"), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }

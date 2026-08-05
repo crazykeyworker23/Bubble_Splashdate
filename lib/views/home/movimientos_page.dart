@@ -1,9 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:convert';
-import '../../constants/api_constants.dart';
-import 'package:bubblesplash/services/app_http.dart' as http;
 
 import 'dart:io';
 import 'package:open_file/open_file.dart';
@@ -11,11 +6,20 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:share_plus/share_plus.dart';
 
+import 'package:bubblesplash/services/movimientos_service.dart';
+
 import 'detail_movimiento_page.dart';
 import 'movimiento.dart' as simple;
 
 class MovimientosPage extends StatefulWidget {
-  const MovimientosPage({super.key});
+  /// Número de pedido que debe abrirse en cuanto termine de cargar.
+  ///
+  /// Lo usa la notificación de «compra realizada»: llevar al cliente a la
+  /// lista y que busque él su compra entre las demás es dejarle el trabajo a
+  /// medias, sobre todo si tiene decenas de movimientos.
+  final String? abrirPedido;
+
+  const MovimientosPage({super.key, this.abrirPedido});
 
   @override
   State<MovimientosPage> createState() => _MovimientosPageState();
@@ -24,257 +28,83 @@ class MovimientosPage extends StatefulWidget {
 class _MovimientosPageState extends State<MovimientosPage> {
   List<Map<String, dynamic>> movimientosRaw = [];
 
-  int _asInt(dynamic value) {
-    if (value is int) return value;
-    return int.tryParse(value?.toString() ?? '') ?? 0;
-  }
-
-  double _asDouble(dynamic value) {
-    if (value is double) return value;
-    if (value is num) return value.toDouble();
-    return double.tryParse(value?.toString() ?? '') ?? 0.0;
-  }
-
-  double? _computeMontoFromItems(Map<String, dynamic> m) {
-    final tipo = (m['tipo'] ?? '').toString().toLowerCase();
-    if (tipo != 'gasto') return null;
-
-    final dynamic rawItems = m['items'];
-    if (rawItems is! List) return null;
-
-    double sum = 0.0;
-    for (final item in rawItems) {
-      if (item is! Map) continue;
-      final unit = _asDouble(item['price']);
-      final qty = _asInt(item['quantity'] ?? 1);
-      final safeQty = qty <= 0 ? 1 : qty;
-      sum += unit * safeQty;
-    }
-
-    if (sum <= 0) return null;
-    return sum;
-  }
-
-  Map<String, dynamic> _normalizeMonto(Map<String, dynamic> m) {
-    final computed = _computeMontoFromItems(m);
-    if (computed == null) return m;
-    final out = Map<String, dynamic>.from(m);
-    out['monto'] = computed;
-    return out;
-  }
-
   @override
   void initState() {
     super.initState();
     _cargarMovimientos();
   }
 
-  Future<List<Map<String, dynamic>>> _cargarMovimientosLocales() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final user = FirebaseAuth.instance.currentUser;
-      final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
-      final String? userUniqueId = user?.uid ?? (email != null && email.isNotEmpty ? email : null);
-      final String? keyMovs = userUniqueId != null ? 'movimientos_$userUniqueId' : null;
-      final List<String> data = keyMovs != null
-          ? (prefs.getStringList(keyMovs) ?? <String>[])
-          : <String>[];
-
-      final List<Map<String, dynamic>> parsed = [];
-      for (final raw in data) {
-        try {
-          final decoded = jsonDecode(raw);
-          if (decoded is Map) {
-            parsed.add(Map<String, dynamic>.from(decoded));
-          }
-        } catch (_) {
-          // Ignorar entradas corruptas
-        }
-      }
-      return parsed;
-    } catch (e) {
-      debugPrint('Excepción al cargar movimientos locales: $e');
-      return [];
-    }
-  }
-
-  DateTime _parseFechaMovimiento(Map<String, dynamic> m) {
-    final fecha = (m['fecha'] ?? '').toString().trim();
-    if (fecha.isEmpty) {
-      return DateTime.fromMillisecondsSinceEpoch(0);
-    }
-
-    // ISO: 2026-01-10T12:34:56Z / 2026-01-10 12:34
-    try {
-      if (fecha.contains('T')) {
-        return DateTime.tryParse(fecha) ?? DateTime.fromMillisecondsSinceEpoch(0);
-      }
-      if (RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(fecha)) {
-        final normalized = fecha.contains(' ') ? fecha.replaceFirst(' ', 'T') : fecha;
-        return DateTime.tryParse(normalized) ?? DateTime.fromMillisecondsSinceEpoch(0);
-      }
-    } catch (_) {}
-
-    // Formato local: dd/MM/yyyy HH:mm
-    try {
-      final parts = fecha.split(' ');
-      final datePart = parts.isNotEmpty ? parts[0] : fecha;
-      final timePart = parts.length > 1 ? parts[1] : '00:00';
-      final d = datePart.split('/');
-      final t = timePart.split(':');
-      if (d.length == 3) {
-        final day = int.tryParse(d[0]) ?? 1;
-        final month = int.tryParse(d[1]) ?? 1;
-        final year = int.tryParse(d[2]) ?? 1970;
-        final hour = t.isNotEmpty ? int.tryParse(t[0]) ?? 0 : 0;
-        final minute = t.length > 1 ? int.tryParse(t[1]) ?? 0 : 0;
-        return DateTime(year, month, day, hour, minute);
-      }
-    } catch (_) {}
-
-    return DateTime.fromMillisecondsSinceEpoch(0);
-  }
-
-  String _dedupeKey(Map<String, dynamic> m) {
-    final codigo = (m['codigo'] ?? '').toString().trim();
-    if (codigo.isNotEmpty) return 'codigo:$codigo';
-    final tipo = (m['tipo'] ?? '').toString();
-    final monto = (m['monto'] ?? '').toString();
-    final fecha = (m['fecha'] ?? '').toString();
-    final ref = (m['referencia'] ?? '').toString();
-    return 't:$tipo|m:$monto|f:$fecha|r:$ref';
-  }
-
-  List<Map<String, dynamic>> _mergeMovimientos(
-    List<Map<String, dynamic>> locales,
-    List<Map<String, dynamic>> api,
-  ) {
-    final out = <Map<String, dynamic>>[];
-    final seenKeys = <String>{};
-    final seenOrderIds = <int>{};
-
-    // Primero agregamos todos los locales (tienen prioridad porque son más ricos en detalles)
-    for (final m in locales) {
-      final normalized = _normalizeMonto(m);
-      final key = _dedupeKey(normalized);
-      seenKeys.add(key);
-
-      final int orderId = _asInt(normalized['orderId'] ?? normalized['order_id']);
-      if (orderId > 0) {
-        seenOrderIds.add(orderId);
-      }
-      out.add(normalized);
-    }
-
-    // Luego agregamos los de la API si no están ya representados localmente
-    for (final m in api) {
-      final key = _dedupeKey(m);
-      if (seenKeys.contains(key)) continue;
-
-      final int? apiOrderId = m['apiOrderId'] as int?;
-      if (apiOrderId != null && seenOrderIds.contains(apiOrderId)) {
-        // Ya existe una transacción local para este mismo pedido
-        continue;
-      }
-
-      // O si el método o referencia contiene "pedido #XXXX" o similar y coincide
-      final String ref = (m['referencia'] ?? '').toString();
-      final String method = (m['metodo'] ?? '').toString();
-      bool isDup = false;
-      for (final seenId in seenOrderIds) {
-        if (ref.contains('#$seenId') || method.contains('#$seenId')) {
-          isDup = true;
-          break;
-        }
-      }
-      if (isDup) continue;
-
-      seenKeys.add(key);
-      out.add(m);
-    }
-
-    out.sort((a, b) => _parseFechaMovimiento(b).compareTo(_parseFechaMovimiento(a)));
-    return out;
-  }
-
+  /// Carga el historial ya unificado.
+  ///
+  /// Toda la lógica —consultar el backend, leer el detalle guardado en el
+  /// teléfono y cruzarlos sin repetir la compra— vive en `MovimientosService`,
+  /// que es también el que usa `PagosPage`. Antes cada pantalla tenía su
+  /// propia copia del algoritmo y ambas mostraban cada compra dos veces.
   Future<void> _cargarMovimientos() async {
-    List<Map<String, dynamic>> apiMovimientos = [];
-    try {
-      final uri = Uri.parse(ApiConstants.baseUrl + '/bubblesplash/wallet/movimientos/');
+    final lista = await MovimientosService.cargar();
+    if (!mounted) return;
+    setState(() => movimientosRaw = lista);
 
-      // AppHttp renueva el token automáticamente y fuerza logout si expira.
-      final http.Response response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': 'Bearer __placeholder__',
-        },
-      );
+    if (widget.abrirPedido != null) _abrirPedidoIndicado();
+  }
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
+  /// Abre el detalle del pedido que pidió la notificación.
+  ///
+  /// Se hace tras cargar, y se compara con lo que haya: el número puede venir
+  /// como `PED-0007` o solo `0007` según quién generó el aviso.
+  void _abrirPedidoIndicado() {
+    final buscado = (widget.abrirPedido ?? '').trim().toUpperCase();
+    if (buscado.isEmpty) return;
 
-        apiMovimientos = data.whereType<Map<String, dynamic>>().map((item) {
-          final String rawType = (item['wmv_txt_type'] ?? '').toString();
-          final bool esRecarga = rawType.toUpperCase() == 'RECARGA';
+    // Se compara contra los campos que sí identifican al pedido: el número que
+    // se le enseña al cliente y el id interno. `codigo` y `referencia` son del
+    // MOVIMIENTO, no del pedido, así que no sirven aquí.
+    Map<String, dynamic>? encontrado;
+    for (final m in movimientosRaw) {
+      final numero = (m['orderNumber'] ?? '').toString().trim().toUpperCase();
+      final id = (m['orderId'] ?? '').toString().trim();
 
-          final String amountStr = (item['wmv_de_amount'] ?? '0').toString();
-          final double monto = (double.tryParse(amountStr) ?? 0.0).abs();
-          final String descripcion = (item['wmv_txt_description'] ?? '').toString();
-          final String fechaIso = (item['timestamp_datecreate'] ?? '').toString();
-          final String id = (item['wmv_int_id'] ?? '').toString();
-
-          String fecha = fechaIso;
-          if (fechaIso.contains('T')) {
-            try {
-              fecha = fechaIso.replaceFirst('T', ' ').substring(0, 16);
-            } catch (_) {
-              fecha = fechaIso;
-            }
-          }
-
-          if (esRecarga) {
-            return <String, dynamic>{
-              'tipo': 'recarga',
-              'monto': monto,
-              'metodo': descripcion,
-              'referencia': id,
-              'fecha': fecha,
-              'codigo': 'MOV$id',
-            };
-          } else {
-            // Es un gasto (compra)
-            int? apiOrderId;
-            final match = RegExp(r'#(\d+)').firstMatch(descripcion);
-            if (match != null) {
-              apiOrderId = int.tryParse(match.group(1) ?? '');
-            }
-
-            return <String, dynamic>{
-              'tipo': 'gasto',
-              'monto': monto,
-              'metodo': descripcion.isNotEmpty ? descripcion : 'Compra de productos',
-              'referencia': 'MOV$id',
-              'fecha': fecha,
-              'codigo': 'MOV$id',
-              'apiOrderId': apiOrderId,
-            };
-          }
-        }).whereType<Map<String, dynamic>>().toList();
-      } else {
-        debugPrint(
-            'Error al cargar movimientos (API): ${response.statusCode} ${response.body}');
+      if ((numero.isNotEmpty && numero == buscado) ||
+          (id.isNotEmpty && id == buscado)) {
+        encontrado = m;
+        break;
       }
-    } catch (e) {
-      debugPrint('Excepción al cargar movimientos (API): $e');
     }
 
-    final locales = await _cargarMovimientosLocales();
-    final listaFinal = _mergeMovimientos(locales, apiMovimientos);
-    if (!mounted) return;
-    setState(() {
-      movimientosRaw = listaFinal;
+    // Si no aparece —un pedido muy antiguo, o el número no cuadra— se deja la
+    // lista abierta en vez de no hacer nada: al menos está en el sitio.
+    if (encontrado == null) return;
+
+    final datosAdicionales = Map<String, dynamic>.from(encontrado);
+    if ((encontrado['tipo'] ?? '') == 'gasto' &&
+        datosAdicionales['items'] == null) {
+      datosAdicionales['items'] = <dynamic>[];
+    }
+
+    final monto = (encontrado['monto'] is num)
+        ? (encontrado['monto'] as num).toDouble()
+        : double.tryParse(encontrado['monto'].toString()) ?? 0.0;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DetalleMovimientoPage(
+            movimiento: simple.Movimiento(
+              // Mismo título que en la lista, para que la pantalla que se abre
+              // sea idéntica a la que saldría tocando la fila.
+              titulo: (encontrado!['tipo'] ?? '') == 'recarga'
+                  ? 'RECARGA'
+                  : 'COMPRA',
+              monto: monto,
+              tipo: (encontrado['tipo'] ?? '').toString(),
+              fecha: (encontrado['fecha'] ?? '').toString(),
+            ),
+            datosAdicionales: datosAdicionales,
+          ),
+        ),
+      );
     });
   }
 

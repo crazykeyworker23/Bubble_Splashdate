@@ -5,7 +5,10 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../constants/api_constants.dart';
 import '../../services/fcm_service.dart';
+import '../../services/sede_service.dart';
+import '../../widgets/sede_selector_field.dart';
 import 'home_page.dart';
+import 'package:bubblesplash/services/notificaciones_store.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({Key? key}) : super(key: key);
@@ -15,20 +18,77 @@ class RegisterPage extends StatefulWidget {
 }
 
 class _RegisterPageState extends State<RegisterPage> {
-    bool _obscurePassword = true;
-    bool _obscureConfirmPassword = true;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _fullnameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController = TextEditingController();
-  final TextEditingController _avatarController = TextEditingController(text: 'https://mi-cdn.com/avatars/default.png');
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
+
+  /// Código de referido, opcional. Se aplica DESPUÉS de crear la cuenta,
+  /// porque hasta entonces no hay usuario al que vincularlo.
+  final TextEditingController _referidoController = TextEditingController();
+  final TextEditingController _avatarController = TextEditingController(
+    text: 'https://mi-cdn.com/avatars/default.png',
+  );
   bool aceptaDatos = false;
   bool _loading = false;
+
+  /// Sede a la que pertenece el cliente. Define a qué local llegan sus
+  /// pedidos y qué catálogo/ofertas ve en la app.
+  Sede? _sedeSeleccionada;
 
   @override
   void initState() {
     super.initState();
+  }
+
+  /// Envía el código de referido si el usuario escribió uno.
+  ///
+  /// No entrega puntos aquí: el servidor deja el referido pendiente y lo
+  /// recompensa cuando el nuevo usuario haga su primera compra o recarga.
+  Future<void> _aplicarCodigoReferido() async {
+    final codigo = _referidoController.text.trim().toUpperCase();
+    if (codigo.isEmpty) return;
+
+    try {
+      // Esta pantalla usa `http` directo, así que el token va explícito. Ya
+      // está guardado: el registro acaba de iniciar sesión.
+      final prefs = await SharedPreferences.getInstance();
+      final token = (prefs.getString('access_token') ?? '').trim();
+      if (token.isEmpty) return;
+
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/bubblesplash/referidos/aplicar/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'codigo': codigo}),
+      );
+
+      if (!mounted) return;
+
+      final decoded = jsonDecode(response.body);
+      final mensaje = (decoded is Map && decoded['detail'] != null)
+          ? decoded['detail'].toString()
+          : 'No se pudo aplicar el código de referido.';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(mensaje),
+          backgroundColor: response.statusCode == 201
+              ? const Color(0xFF1B6F81)
+              : Colors.redAccent,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      debugPrint('No se pudo aplicar el código de referido: $e');
+    }
   }
 
   @override
@@ -46,7 +106,10 @@ class _RegisterPageState extends State<RegisterPage> {
                 Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.arrow_back_ios_new, color: Color(0xFF045378)),
+                      icon: const Icon(
+                        Icons.arrow_back_ios_new,
+                        color: Color(0xFF045378),
+                      ),
                       onPressed: () => Navigator.pop(context),
                     ),
                     const SizedBox(width: 6),
@@ -61,7 +124,10 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
                 const SizedBox(height: 25),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 25),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 25,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(18),
@@ -86,7 +152,9 @@ class _RegisterPageState extends State<RegisterPage> {
                           if (value == null || value.isEmpty) {
                             return 'Campo obligatorio';
                           }
-                          final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+');
+                          final emailRegex = RegExp(
+                            r'^[^@\s]+@[^@\s]+\.[^@\s]+',
+                          );
                           if (!emailRegex.hasMatch(value)) {
                             return 'Email inválido';
                           }
@@ -110,7 +178,9 @@ class _RegisterPageState extends State<RegisterPage> {
                         decoration: _inputDecoration('Contraseña').copyWith(
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                              _obscurePassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
                               color: Colors.grey,
                             ),
                             onPressed: () {
@@ -134,19 +204,23 @@ class _RegisterPageState extends State<RegisterPage> {
                       const SizedBox(height: 15),
                       TextFormField(
                         controller: _confirmPasswordController,
-                        decoration: _inputDecoration('Confirmar contraseña').copyWith(
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
-                              color: Colors.grey,
+                        decoration: _inputDecoration('Confirmar contraseña')
+                            .copyWith(
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscureConfirmPassword
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                  color: Colors.grey,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _obscureConfirmPassword =
+                                        !_obscureConfirmPassword;
+                                  });
+                                },
+                              ),
                             ),
-                            onPressed: () {
-                              setState(() {
-                                _obscureConfirmPassword = !_obscureConfirmPassword;
-                              });
-                            },
-                          ),
-                        ),
                         obscureText: _obscureConfirmPassword,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
@@ -157,6 +231,27 @@ class _RegisterPageState extends State<RegisterPage> {
                           }
                           return null;
                         },
+                      ),
+                      const SizedBox(height: 15),
+                      // Código de referido: opcional. Se escribe en
+                      // mayúsculas porque así es como se genera y como lo
+                      // comparte quien invita.
+                      TextFormField(
+                        controller: _referidoController,
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: _inputDecoration(
+                          'Código de referido (opcional)',
+                        ),
+                      ),
+                      const SizedBox(height: 25),
+                      _sectionTitle('Tu sede'),
+                      const SizedBox(height: 10),
+                      SedeSelectorField(
+                        selectedSedeId: _sedeSeleccionada?.id,
+                        onChanged: (sede) =>
+                            setState(() => _sedeSeleccionada = sede),
+                        helperText:
+                            'Elige el local donde recogerás tus pedidos. Podrás cambiarlo luego desde Mi perfil.',
                       ),
                       const SizedBox(height: 25),
                       _sectionTitle('Términos y Condiciones'),
@@ -178,7 +273,12 @@ class _RegisterPageState extends State<RegisterPage> {
                         child: ElevatedButton(
                           onPressed: _loading ? null : _onSubmit,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color.fromARGB(255, 27, 111, 129),
+                            backgroundColor: const Color.fromARGB(
+                              255,
+                              27,
+                              111,
+                              129,
+                            ),
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
@@ -186,7 +286,9 @@ class _RegisterPageState extends State<RegisterPage> {
                             elevation: 4,
                           ),
                           child: _loading
-                              ? const CircularProgressIndicator(color: Colors.white)
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                )
                               : Text(
                                   'Registrarme',
                                   style: GoogleFonts.paytoneOne(
@@ -209,7 +311,10 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Widget _buildTextField(
-      TextEditingController controller, String label, bool required) {
+    TextEditingController controller,
+    String label,
+    bool required,
+  ) {
     return TextFormField(
       controller: controller,
       decoration: _inputDecoration(label),
@@ -253,19 +358,38 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> _onSubmit() async {
     if (!_formKey.currentState!.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor, complete los campos obligatorios.')),
+        const SnackBar(
+          content: Text('Por favor, complete los campos obligatorios.'),
+        ),
       );
       return;
     }
     if (_passwordController.text != _confirmPasswordController.text) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Las contraseñas no coinciden'), backgroundColor: Colors.red),
+        const SnackBar(
+          content: Text('Las contraseñas no coinciden'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    if (_sedeSeleccionada == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecciona la sede a la que perteneces.'),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
     if (!aceptaDatos) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Debe aceptar el uso de sus datos personales para continuar.'), backgroundColor: Colors.red),
+        const SnackBar(
+          content: Text(
+            'Debe aceptar el uso de sus datos personales para continuar.',
+          ),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
@@ -285,8 +409,10 @@ class _RegisterPageState extends State<RegisterPage> {
       "use_txt_avatar": avatarUrl,
       "srv_int_id": 1,
       "rol_int_id": 3,
+      // ✅ El backend crea el perfil Bubble con esta sede.
+      "sed_int_id": _sedeSeleccionada!.id,
       "use_txt_status": "ACTIVO",
-      "is_active": true
+      "is_active": true,
     };
     try {
       final res = await http.post(
@@ -304,10 +430,13 @@ class _RegisterPageState extends State<RegisterPage> {
         if (!mounted) return;
         await prefs.setString('google_name', fullName);
         await prefs.setString('use_txt_fullname', fullName);
+        await SedeService.saveUserSede(_sedeSeleccionada);
         if (!mounted) return;
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('¡Registro exitoso! Iniciando sesión...')),
+          const SnackBar(
+            content: Text('¡Registro exitoso! Iniciando sesión...'),
+          ),
         );
 
         // Realizar login automático
@@ -325,9 +454,12 @@ class _RegisterPageState extends State<RegisterPage> {
             final dynamic decoded = jsonDecode(loginRes.body);
             if (decoded is Map<String, dynamic>) {
               final dynamic tokenContainer =
-                  (decoded['data'] is Map<String, dynamic>) ? decoded['data'] : decoded;
+                  (decoded['data'] is Map<String, dynamic>)
+                  ? decoded['data']
+                  : decoded;
 
-              final dynamic accessRaw = tokenContainer['access'] ??
+              final dynamic accessRaw =
+                  tokenContainer['access'] ??
                   tokenContainer['access_token'] ??
                   tokenContainer['token'];
               final dynamic refreshRaw =
@@ -342,14 +474,22 @@ class _RegisterPageState extends State<RegisterPage> {
                   prefs.remove('google_id'),
                   prefs.remove('google_id_token'),
                   prefs.setString('access_token', accessToken),
-                  if (refreshToken.isNotEmpty) prefs.setString('refresh_token', refreshToken),
+                  if (refreshToken.isNotEmpty)
+                    prefs.setString('refresh_token', refreshToken),
                   prefs.setString('google_email', email),
                   prefs.setString('savedEmail', email),
                   prefs.setBool('rememberMe', true),
                   prefs.setBool('isLoggedIn', true),
+      // Se descarta el historial de quien usara antes este teléfono.
+      NotificacionesStore.limpiar(),
                 ]);
 
                 await FcmService.initAndSendTokenIfPossible();
+
+                // El código se aplica con la sesión ya iniciada. Si falla, no
+                // se interrumpe el registro: la cuenta ya está creada y el
+                // usuario podrá reclamarlo después.
+                await _aplicarCodigoReferido();
 
                 if (!mounted) return;
                 Navigator.pushAndRemoveUntil(
@@ -364,21 +504,28 @@ class _RegisterPageState extends State<RegisterPage> {
           // Fallback a login manual si el auto-login falla
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Registro exitoso. Inicia sesión manualmente.')),
+            const SnackBar(
+              content: Text('Registro exitoso. Inicia sesión manualmente.'),
+            ),
           );
           Navigator.pop(context);
         } catch (loginError) {
           debugPrint('❌ Error en login automático post-registro: $loginError');
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Registro exitoso. Inicia sesión manualmente.')),
+            const SnackBar(
+              content: Text('Registro exitoso. Inicia sesión manualmente.'),
+            ),
           );
           Navigator.pop(context);
         }
       } else {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${res.body}'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Error: ${res.body}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } catch (e) {

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+
+	<!-- Notificaciones push (APNs).
+
+	     Sin esta clave el sistema NO registra la app en APNs, y sin registro en
+	     APNs Firebase nunca entrega un token FCM en iOS: las notificaciones de
+	     pedidos y recargas no llegaban a ningún iPhone, aunque el resto de la
+	     configuración fuera correcta.
+
+	     Se deja en "development" a propósito: es el valor que corresponde a las
+	     compilaciones de desarrollo y TestFlight interno. Al exportar el archivo
+	     para App Store o Ad Hoc, Xcode lo sustituye por "production"
+	     automáticamente, siempre que la capacidad "Push Notifications" esté
+	     activada en el target. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

@@ -151,7 +151,10 @@ class _ScannerPageState extends State<ScannerPage> {
 
                         // Registrar movimiento de gasto en el historial
                         final prefs = await SharedPreferences.getInstance();
-                        final user = FirebaseAuth.instance.currentUser;
+                        User? user;
+                        try {
+                          user = FirebaseAuth.instance.currentUser;
+                        } catch (_) {}
                         final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
                         final String? userUniqueId = user?.uid ?? (email != null && email.isNotEmpty ? email : null);
                         final String? keyMovs = userUniqueId != null ? 'movimientos_$userUniqueId' : null;

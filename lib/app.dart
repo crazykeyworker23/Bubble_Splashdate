@@ -10,6 +10,7 @@ import 'utils/globals.dart';
 import 'views/login/login_page.dart';
 import 'views/login/home_page.dart';
 import 'services/user_info_service.dart';
+import 'services/actualizacion_service.dart';
 
 class SessionGate extends StatefulWidget {
   const SessionGate({super.key});
@@ -20,6 +21,7 @@ class SessionGate extends StatefulWidget {
 
 class _SessionGateState extends State<SessionGate> {
   late final Future<bool> _startupFuture;
+  bool _actualizacionComprobada = false;
 
   @override
   void initState() {
@@ -65,6 +67,23 @@ class _SessionGateState extends State<SessionGate> {
     return FutureBuilder<bool>(
       future: _startupFuture,
       builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.done) {
+          // Aviso de actualización.
+          //
+          // Se lanza una sola vez por arranque y después del primer frame,
+          // porque el diálogo necesita un Navigator ya montado. Va aquí y no
+          // en la Home para que también alcance a quien no ha iniciado
+          // sesión: una versión que ya no está soportada tampoco puede
+          // hacer login.
+          if (!_actualizacionComprobada) {
+            _actualizacionComprobada = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              final ctx = navigatorKey.currentContext;
+              if (ctx != null) ActualizacionService.comprobar(ctx);
+            });
+          }
+        }
+
         if (snapshot.connectionState != ConnectionState.done) {
           // Mientras se resuelve la sesión e inicializan servicios,
           // mostramos nuestro splash interno animado.
@@ -116,11 +135,7 @@ class _SessionSplashLoadingState extends State<_SessionSplashLoading>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Image.asset(
-              'assets/logob.png',
-              width: 120,
-              height: 120,
-            ),
+            Image.asset('assets/logob.png', width: 120, height: 120),
             const SizedBox(height: 16),
             const Text(
               'Cargando...',
@@ -180,13 +195,47 @@ class MyApp extends StatelessWidget {
             primary: const Color.fromARGB(255, 255, 255, 255),
           ),
           scaffoldBackgroundColor: Colors.white,
+
+          // Color de los indicadores de carga.
+          //
+          // Sin esto heredan `colorScheme.primary`, que en esta app es BLANCO,
+          // y el fondo también: los ocho indicadores de la app giraban en
+          // blanco sobre blanco, o sea invisibles. Parecía que la pantalla se
+          // quedaba colgada cuando en realidad estaba cargando.
+          progressIndicatorTheme: const ProgressIndicatorThemeData(
+            color: Color(0xFF1B6F81),
+            circularTrackColor: Color(0x1A1B6F81),
+          ),
         ),
         debugShowCheckedModeBanner: false,
         navigatorObservers: [routeObserver],
+
+        // Límite al tamaño de letra del sistema.
+        //
+        // iOS (Dynamic Type) y Android permiten agrandar la letra muy por
+        // encima del 100 %. Sin este tope, ese factor se aplica tal cual a
+        // toda la app: los textos crecen dentro de contenedores de alto fijo,
+        // desbordan y el contenido queda cortado o directamente invisible.
+        //
+        // Se respeta la preferencia del usuario dentro de un rango razonable
+        // en vez de ignorarla: sigue agrandando la letra, pero sin romper la
+        // composición en ningún tamaño de teléfono.
+        builder: (context, child) {
+          final mediaQuery = MediaQuery.of(context);
+          return MediaQuery(
+            data: mediaQuery.copyWith(
+              textScaler: mediaQuery.textScaler.clamp(
+                minScaleFactor: 0.85,
+                maxScaleFactor: 1.30,
+              ),
+            ),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
+
         home: const SessionGate(),
         routes: {...AppRoutes.routes},
       ),
     );
   }
 }
-

@@ -11,12 +11,15 @@ import 'CartPage.dart';
 import 'package:bubblesplash/utils/route_observer.dart';
 import 'package:bubblesplash/services/auth_service.dart';
 import 'package:bubblesplash/services/menu_prefetcher.dart';
+import 'package:bubblesplash/services/sede_service.dart';
 import 'package:bubblesplash/constants/backend_config.dart';
 import '../../constants/api_constants.dart';
 import 'package:bubblesplash/widgets/connection_error_dialog.dart';
 
 import 'package:bubblesplash/models/category.dart';
 import 'package:bubblesplash/models/product.dart';
+import 'package:bubblesplash/utils/tamanos.dart';
+import 'package:bubblesplash/utils/carrito_promos.dart';
 import 'package:bubblesplash/models/topping.dart';
 
 // =========================
@@ -193,7 +196,14 @@ class MenuPage extends StatefulWidget {
   final double descuento;
   // Id opcional de la oferta/canje aplicada (se usará como ofc_int_id en el pedido)
   final int? ofcIntId;
-  const MenuPage({super.key, this.descuento = 0.0, this.ofcIntId});
+  // Tamaño de vaso permitido según canje de puntos
+  final String? allowedSize;
+  const MenuPage({
+    super.key,
+    this.descuento = 0.0,
+    this.ofcIntId,
+    this.allowedSize,
+  });
 
   @override
   State<MenuPage> createState() => _MenuPageState();
@@ -204,128 +214,167 @@ class MenuPage extends StatefulWidget {
 // --------------------
 class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onHelpPressed;
-  const CustomAppBar({super.key, this.onHelpPressed});
+  final VoidCallback? onRefreshPressed;
+  final bool refreshing;
+  final String? sedeNombre;
+
+  const CustomAppBar({
+    super.key,
+    this.onHelpPressed,
+    this.onRefreshPressed,
+    this.refreshing = false,
+    this.sedeNombre,
+  });
 
   @override
-  Size get preferredSize => const Size.fromHeight(110);
+  Size get preferredSize => const Size.fromHeight(56);
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: preferredSize.height,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF0B3D4A), Color(0xFF128FA0)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+    return AppBar(
+      automaticallyImplyLeading: false,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      flexibleSpace: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF0B3D4A), Color(0xFF128FA0)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 18,
+              offset: Offset(0, 12),
+            ),
+          ],
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 18,
-            offset: Offset(0, 12),
+      ),
+      titleSpacing: 14,
+      title: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withOpacity(0.18)),
+            ),
+            child: const Icon(
+              Icons.local_drink_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    ' SPLASH BUBBLE',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    (sedeNombre != null && sedeNombre!.isNotEmpty)
+                        ? 'SEDE ${sedeNombre!.toUpperCase()}'
+                        : 'BEBIDAS ESPECIALES',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.14),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withOpacity(0.18)),
-                ),
-                child: const Icon(
-                  Icons.local_drink_rounded,
-                  color: Colors.white,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Text(
-                        ' SPLASH BUBBLE',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 1.0,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'BEBIDAS ESPECIALES',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.6,
-                        ),
-                      ),
-                    ],
+      actions: [
+        if (onRefreshPressed != null)
+          IconButton(
+            icon: refreshing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(
+                    Icons.refresh_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+            onPressed: refreshing ? null : onRefreshPressed,
+            tooltip: 'Actualizar productos y ofertas de tu sede',
+            constraints: const BoxConstraints(),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          ),
+        if (onHelpPressed != null) ...[
+          IconButton(
+            icon: const Icon(
+              Icons.help_outline_rounded,
+              color: Colors.white,
+              size: 24,
+            ),
+            onPressed: onHelpPressed,
+            tooltip: 'Ver guía de navegación',
+            constraints: const BoxConstraints(),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          ),
+        ],
+        Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            margin: const EdgeInsets.only(right: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Colors.white.withOpacity(0.18)),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.circle, size: 6, color: Colors.white),
+                SizedBox(width: 5),
+                Icon(Icons.circle, size: 6, color: Colors.white),
+                SizedBox(width: 8),
+                Text(
+                  'BUBBLE',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.9,
                   ),
                 ),
-              ),
-              if (onHelpPressed != null) ...[
-                IconButton(
-                  icon: const Icon(Icons.help_outline_rounded, color: Colors.white, size: 24),
-                  onPressed: onHelpPressed,
-                  tooltip: 'Ver guía de navegación',
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                ),
               ],
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 9,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.14),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white.withOpacity(0.18)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.circle, size: 7, color: Colors.white),
-                    SizedBox(width: 6),
-                    Icon(Icons.circle, size: 7, color: Colors.white),
-                    SizedBox(width: 10),
-                    Text(
-                      'BUBBLE',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.9,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -335,12 +384,16 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
 // --------------------
 class _MenuPageState extends State<MenuPage>
     with RouteAware, WidgetsBindingObserver {
-
   List<Map<String, dynamic>> pedidos = [];
   bool _suppressNextReload = false;
 
   // Indica si ya se usó el canje/descuento en algún producto del carrito
   bool get _canjeYaUsado => pedidos.any((p) => p['isPromoItem'] == true);
+
+  /// La pantalla se abrió desde un canje de oferta: el proceso debe ser
+  /// "elegir producto → pagar", sin pasos intermedios.
+  bool get _isCanjeExpress =>
+      (widget.ofcIntId != null && widget.ofcIntId! > 0) || widget.descuento > 0;
 
   List<Category> _categories = [];
   bool _isLoadingProducts = true;
@@ -360,7 +413,6 @@ class _MenuPageState extends State<MenuPage>
   bool _showInteractiveOnboarding = false;
   int _currentOnboardingStep = 0;
 
-
   static const String _cartFabXFracKey = 'menu_cart_fab_x_frac';
   static const String _cartFabYFracKey = 'menu_cart_fab_y_frac';
   final GlobalKey _cartFabStackKey = GlobalKey();
@@ -372,6 +424,9 @@ class _MenuPageState extends State<MenuPage>
   Offset? _cartFabDragStartGlobal;
   Offset? _cartFabDragStartOffset;
   bool _isDraggingCartFab = false;
+
+  bool _refrescando = false;
+  String? _sedeNombre;
 
   static const String _categoriesCacheKey = 'menu_categories_cache';
   static const String _categoriesCacheTimeKey = 'menu_categories_cache_time';
@@ -390,6 +445,7 @@ class _MenuPageState extends State<MenuPage>
 
     _cargarPedidosGuardados();
     _cargarCategorias();
+    _cargarNombreSede();
     _loadCartFabPosition();
   }
 
@@ -432,9 +488,13 @@ class _MenuPageState extends State<MenuPage>
     final data = prefs.getStringList('cart_pedidos') ?? [];
     if (!mounted) return;
     setState(() {
-      pedidos = data
-          .map((e) => Map<String, dynamic>.from(jsonDecode(e)))
-          .toList();
+      // Sin canje activo en esta sesión, los precios promocionales del
+      // carrito guardado se revierten: el servidor cobraría el precio
+      // completo y la app estaría mostrando otro.
+      pedidos = sanearCarritoGuardado(
+        data.map((e) => Map<String, dynamic>.from(jsonDecode(e))).toList(),
+        hayCanjeActivo: (widget.ofcIntId ?? 0) > 0,
+      );
     });
   }
 
@@ -578,6 +638,49 @@ class _MenuPageState extends State<MenuPage>
   // --------------------
   // Carga categorías (cache + optimización)
   // --------------------
+  Future<void> _cargarNombreSede() async {
+    final sede = await SedeService.getUserSede();
+    if (!mounted || sede == null) return;
+    setState(() => _sedeNombre = sede.name);
+  }
+
+  /// Vuelve a pedir al servidor el catálogo de la sede.
+  ///
+  /// Descarta la caché a propósito: es el botón que usa el cliente cuando el
+  /// local acaba de cambiar precios, stock u ofertas y quiere verlo ya.
+  Future<void> _refrescarDatosDeSede() async {
+    if (_refrescando) return;
+    setState(() => _refrescando = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_categoriesCacheKey);
+      await prefs.remove(_categoriesCacheTimeKey);
+
+      // Por si cambió de sede desde Mi perfil.
+      await SedeService.fetchMyProfile();
+      await _cargarNombreSede();
+
+      _lastCategoriesBody = null;
+      MenuPrefetcher.inMemoryCategories = [];
+      await _cargarCategorias();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _sedeNombre == null
+                ? 'Menú actualizado.'
+                : 'Menú de ${_sedeNombre!} actualizado.',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _refrescando = false);
+    }
+  }
+
   Future<void> _cargarCategorias() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
@@ -624,7 +727,9 @@ class _MenuPageState extends State<MenuPage>
 
     // Si la caché existe y sigue siendo válida, no llamamos a la API en absoluto
     if (hasCache && isCacheValid) {
-      debugPrint('⚡ Caché de productos válida (menos de 15 minutos). No se requiere actualización de red.');
+      debugPrint(
+        '⚡ Caché de productos válida (menos de 15 minutos). No se requiere actualización de red.',
+      );
       return;
     }
 
@@ -651,19 +756,7 @@ class _MenuPageState extends State<MenuPage>
       final now = DateTime.now().millisecondsSinceEpoch;
 
       final rawToken = prefs.getString('access_token');
-      if (rawToken == null || rawToken.trim().isEmpty) {
-        if (!mounted) return;
-        if (!background || _categories.isEmpty) {
-          setState(() {
-            _isLoadingProducts = false;
-            _productsError =
-                'No hay access token. Inicia sesión nuevamente para ver el menú.';
-          });
-        }
-        return;
-      }
-
-      final token = rawToken.trim();
+      final token = (rawToken ?? '').trim();
       final uri = BackendConfig.api('bubblesplash/categorias/');
 
       http.Response? response;
@@ -671,28 +764,33 @@ class _MenuPageState extends State<MenuPage>
       List<Category> parsedCategories = [];
 
       // 1. Intentar obtener el menú con token de autenticación
-      try {
-        response = await http.get(
-          uri,
-          headers: {
-            'Accept': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-        );
+      if (token.isNotEmpty) {
+        try {
+          response = await http.get(
+            uri,
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          );
 
-        if (response.statusCode == 200) {
-          parsedCategories = await compute(_parseCategoriesIsolate, response.body);
-
-          if (parsedCategories.isNotEmpty) {
-            responseIsUseful = true;
-          } else {
-            debugPrint(
-              '⚠️ El menú con token retornó 0 categorías activas con productos.',
+          if (response.statusCode == 200) {
+            parsedCategories = await compute(
+              _parseCategoriesIsolate,
+              response.body,
             );
+
+            if (parsedCategories.isNotEmpty) {
+              responseIsUseful = true;
+            } else {
+              debugPrint(
+                '⚠️ El menú con token retornó 0 categorías activas con productos.',
+              );
+            }
           }
+        } catch (e) {
+          debugPrint('⚠️ Error en la llamada al menú con token: $e');
         }
-      } catch (e) {
-        debugPrint('⚠️ Error en la llamada al menú con token: $e');
       }
 
       // 2. Fallback: Si falló, dio 401, o devolvió lista vacía, intentar de forma anónima
@@ -707,7 +805,10 @@ class _MenuPageState extends State<MenuPage>
           );
 
           if (anonResponse.statusCode == 200) {
-            final anonCategories = await compute(_parseCategoriesIsolate, anonResponse.body);
+            final anonCategories = await compute(
+              _parseCategoriesIsolate,
+              anonResponse.body,
+            );
 
             if (anonCategories.isNotEmpty) {
               parsedCategories = anonCategories;
@@ -799,7 +900,8 @@ class _MenuPageState extends State<MenuPage>
       if (!mounted) return;
       if (!background || _categories.isEmpty) {
         final errStr = e.toString().toLowerCase();
-        final isNetwork = errStr.contains('socketexception') ||
+        final isNetwork =
+            errStr.contains('socketexception') ||
             errStr.contains('failed host lookup') ||
             errStr.contains('clientexception') ||
             errStr.contains('handshake') ||
@@ -824,7 +926,7 @@ class _MenuPageState extends State<MenuPage>
 
   void _precacheProductImages(List<Category> categories) {
     if (!mounted || categories.isEmpty) return;
-    
+
     final selectedId = _selectedCategoryId;
     final targetCat = categories.firstWhere(
       (c) => c.id == selectedId,
@@ -876,6 +978,7 @@ class _MenuPageState extends State<MenuPage>
           builder: (context) => ProductDetailPage(
             product: product,
             descuento: canUseCanje ? widget.descuento : 0.0,
+            allowedSize: canUseCanje ? widget.allowedSize : null,
           ),
         ),
       );
@@ -898,6 +1001,15 @@ class _MenuPageState extends State<MenuPage>
 
       if (!context.mounted) return;
 
+      // ✅ Flujo de canje: el cliente ya pagó con sus puntos, así que no se le
+      //    ofrece "seguir comprando". Se va directo a completar el pedido para
+      //    cerrar el canje en el menor número de pasos posible.
+      if (_isCanjeExpress) {
+        await _openCart();
+        return;
+      }
+
+      // Compra normal: sí se le ofrece seguir agregando productos.
       showDialog(
         context: context,
         barrierDismissible: true,
@@ -925,6 +1037,9 @@ class _MenuPageState extends State<MenuPage>
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: CustomAppBar(
+        sedeNombre: _sedeNombre,
+        refreshing: _refrescando,
+        onRefreshPressed: _refrescarDatosDeSede,
         onHelpPressed: () {
           setState(() {
             _showInteractiveOnboarding = true;
@@ -999,14 +1114,16 @@ class _MenuPageState extends State<MenuPage>
                       _FeaturedCarouselWidget(
                         key: _carouselKey,
                         products: _featuredProducts,
-                        onProductTap: (product) => _openProductAndAdd(context: context, product: product),
+                        onProductTap: (product) => _openProductAndAdd(
+                          context: context,
+                          product: product,
+                        ),
                       ),
 
                     const SizedBox(height: 16),
 
                     // 🔹 Barra de Categorías Horizontal
-                    if (_categories.isNotEmpty)
-                      _buildCategoryChipsBar(),
+                    if (_categories.isNotEmpty) _buildCategoryChipsBar(),
 
                     // 🔹 Resumen del pedido
                     if (pedidos.isNotEmpty) ...[
@@ -1152,7 +1269,7 @@ class _MenuPageState extends State<MenuPage>
                             (c) => c.id == _selectedCategoryId,
                             orElse: () => _categories.first,
                           );
-                           return _buildCategorySectionGrid(
+                          return _buildCategorySectionGrid(
                             key: _productListKey,
                             context: context,
                             categoryId: selectedCat.id,
@@ -1225,6 +1342,7 @@ class _MenuPageState extends State<MenuPage>
                   stackKey: _cartFabStackKey,
                   currentStep: _currentOnboardingStep,
                   totalSteps: 3,
+                  reservaInferior: homeBottomBarTotalHeight,
                   onNext: _onNextOnboarding,
                   onSkip: _onSkipOnboarding,
                 ),
@@ -1278,9 +1396,6 @@ class _MenuPageState extends State<MenuPage>
     });
   }
 
-
-
-
   List<Product> get _featuredProducts {
     if (_categories.isEmpty) return [];
     final selectedCat = _categories.firstWhere(
@@ -1321,9 +1436,14 @@ class _MenuPageState extends State<MenuPage>
               child: Center(
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 250),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFFE28F83) : Colors.transparent,
+                    color: isSelected
+                        ? const Color(0xFFE28F83)
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(999),
                     boxShadow: isSelected
                         ? [
@@ -1331,14 +1451,16 @@ class _MenuPageState extends State<MenuPage>
                               color: const Color(0xFFE28F83).withOpacity(0.25),
                               blurRadius: 8,
                               offset: const Offset(0, 4),
-                            )
+                            ),
                           ]
                         : [],
                   ),
                   child: Text(
                     cat.name,
                     style: TextStyle(
-                      color: isSelected ? Colors.white : const Color(0xFF0F172A).withOpacity(0.6),
+                      color: isSelected
+                          ? Colors.white
+                          : const Color(0xFF0F172A).withOpacity(0.6),
                       fontWeight: FontWeight.w900,
                       fontSize: 15,
                       letterSpacing: 0.2,
@@ -1412,7 +1534,8 @@ class _MenuPageState extends State<MenuPage>
                   builder: (context) {
                     final product = products[index];
                     final precioOriginal = product.price;
-                    final bool canUseCanje = widget.descuento > 0 && !_canjeYaUsado;
+                    final bool canUseCanje =
+                        widget.descuento > 0 && !_canjeYaUsado;
                     final double efectivoDescuento = canUseCanje
                         ? widget.descuento
                         : 0.0;
@@ -1425,13 +1548,14 @@ class _MenuPageState extends State<MenuPage>
                       descuento: efectivoDescuento,
                       precioOriginal: precioOriginal,
                       precioFinal: precioFinal,
-                      onAdd: () =>
-                          _openProductAndAdd(context: context, product: product),
+                      onAdd: () => _openProductAndAdd(
+                        context: context,
+                        product: product,
+                      ),
                     );
                   },
                 ),
-                if (index < products.length - 1)
-                  const SizedBox(height: 12),
+                if (index < products.length - 1) const SizedBox(height: 12),
               ],
             ],
           ),
@@ -1461,7 +1585,8 @@ class _PremiumProductGridTile extends StatefulWidget {
   final VoidCallback onAdd;
 
   @override
-  State<_PremiumProductGridTile> createState() => _PremiumProductGridTileState();
+  State<_PremiumProductGridTile> createState() =>
+      _PremiumProductGridTileState();
 }
 
 class _PremiumProductGridTileState extends State<_PremiumProductGridTile> {
@@ -1469,10 +1594,14 @@ class _PremiumProductGridTileState extends State<_PremiumProductGridTile> {
 
   String _capitalize(String text) {
     if (text.isEmpty) return text;
-    return text.split(' ').map((word) {
-      if (word.isEmpty) return '';
-      return word[0].toUpperCase() + word.substring(1).toLowerCase();
-    }).where((w) => w.isNotEmpty).join(' ');
+    return text
+        .split(' ')
+        .map((word) {
+          if (word.isEmpty) return '';
+          return word[0].toUpperCase() + word.substring(1).toLowerCase();
+        })
+        .where((w) => w.isNotEmpty)
+        .join(' ');
   }
 
   Color _getPastelBg(int id) {
@@ -1492,6 +1621,24 @@ class _PremiumProductGridTileState extends State<_PremiumProductGridTile> {
   Widget build(BuildContext context) {
     final hasDiscount = widget.descuento > 0;
 
+    // Medidas adaptadas al teléfono.
+    //
+    // Antes el alto de la tarjeta y el recuadro de la imagen estaban fijos en
+    // 100 y 84 px. En un iPhone SE el nombre del producto se quedaba sin
+    // espacio, y con la letra del sistema agrandada el precio salía fuera de
+    // la tarjeta y no se veía. Ahora ambos se calculan a partir del ancho real
+    // y del factor de texto, con topes para que la tarjeta no se deforme en un
+    // Pro Max ni en una tablet.
+    final media = MediaQuery.of(context);
+    final double ancho = media.size.width;
+    final double escalaTexto = media.textScaler.scale(14) / 14;
+
+    final double altoTarjeta = (100 * escalaTexto).clamp(96.0, 140.0);
+    final double ladoImagen = (ancho * 0.22).clamp(64.0, 92.0);
+    final double fuenteNombre = (ancho * 0.037).clamp(13.0, 16.0);
+    final double fuentePrecio = (ancho * 0.037).clamp(13.0, 16.0);
+    final double ladoBoton = (ancho * 0.085).clamp(30.0, 38.0);
+
     return GestureDetector(
       onTapDown: (_) => setState(() => _isPressed = true),
       onTapUp: (_) {
@@ -1503,7 +1650,7 @@ class _PremiumProductGridTileState extends State<_PremiumProductGridTile> {
         scale: _isPressed ? 0.97 : 1.0,
         duration: const Duration(milliseconds: 100),
         child: Container(
-          height: 100,
+          height: altoTarjeta,
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: Colors.white,
@@ -1521,8 +1668,8 @@ class _PremiumProductGridTileState extends State<_PremiumProductGridTile> {
             children: [
               // Contenedor pastel de imagen
               Container(
-                width: 84,
-                height: 84,
+                width: ladoImagen,
+                height: ladoImagen,
                 decoration: BoxDecoration(
                   color: _getPastelBg(widget.product.id),
                   borderRadius: BorderRadius.circular(16),
@@ -1577,33 +1724,44 @@ class _PremiumProductGridTileState extends State<_PremiumProductGridTile> {
                       _capitalize(widget.product.name),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF062B35), // Navy oscuro
-                        fontSize: 14,
+                      style: TextStyle(
+                        color: const Color(0xFF062B35), // Navy oscuro
+                        fontSize: fuenteNombre,
                         fontWeight: FontWeight.w800,
                         height: 1.2,
                       ),
                     ),
                     const SizedBox(height: 6),
+                    // Los precios van en Flexible: con descuento son dos
+                    // importes en la misma línea y en un teléfono estrecho se
+                    // salían de la tarjeta.
                     Row(
                       children: [
-                        Text(
-                          'S/. ${widget.precioFinal.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            color: Color(0xFFE28F83), // Color coral
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
+                        Flexible(
+                          child: Text(
+                            'S/. ${widget.precioFinal.toStringAsFixed(2)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: const Color(0xFFE28F83), // Color coral
+                              fontSize: fuentePrecio,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                         ),
                         if (hasDiscount) ...[
                           const SizedBox(width: 6),
-                          Text(
-                            'S/. ${widget.precioOriginal.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              color: Colors.black38,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              decoration: TextDecoration.lineThrough,
+                          Flexible(
+                            child: Text(
+                              'S/. ${widget.precioOriginal.toStringAsFixed(2)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.black38,
+                                fontSize: (fuentePrecio - 3).clamp(10.0, 13.0),
+                                fontWeight: FontWeight.w700,
+                                decoration: TextDecoration.lineThrough,
+                              ),
                             ),
                           ),
                         ],
@@ -1619,8 +1777,8 @@ class _PremiumProductGridTileState extends State<_PremiumProductGridTile> {
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 4, right: 4),
                   child: Container(
-                    width: 32,
-                    height: 32,
+                    width: ladoBoton,
+                    height: ladoBoton,
                     decoration: const BoxDecoration(
                       color: Color(0xFFE28F83), // Botón Coral
                       shape: BoxShape.circle,
@@ -1632,10 +1790,10 @@ class _PremiumProductGridTileState extends State<_PremiumProductGridTile> {
                         ),
                       ],
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.add,
                       color: Colors.white,
-                      size: 18,
+                      size: ladoBoton * 0.56,
                     ),
                   ),
                 ),
@@ -1727,11 +1885,13 @@ class _PremiumGridImage extends StatelessWidget {
 class ProductDetailPage extends StatefulWidget {
   final Product product;
   final double descuento;
+  final String? allowedSize;
 
   const ProductDetailPage({
     super.key,
     required this.product,
     this.descuento = 0.0,
+    this.allowedSize,
   });
 
   @override
@@ -1812,7 +1972,11 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       (sum, t) => sum + (t.topping.price * t.quantity),
     );
 
-    final unitTotal = basePrice + sizeExtra + iceExtra + toppingsTotal;
+    // ✅ Bruto = lo que costaría sin canje. Neto = lo que se cobra realmente.
+    //    Con un canje del 100% el neto es 0 aunque el vaso sea grande.
+    final unitTotalBruto = basePrice + sizeExtra + iceExtra + toppingsTotal;
+    final unitTotal = _calcularTotal();
+    final descuentoMonto = ((unitTotalBruto - unitTotal) * 100).round() / 100;
 
     // Normalizar imagen para que siempre sea URL del backend si corresponde
     String img = widget.product.image;
@@ -1828,6 +1992,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       'desc': widget.product.description,
       'image': img,
       'price': unitTotal,
+      'priceOriginal': unitTotalBruto,
+      'discountPercent': widget.descuento,
+      'discountAmount': descuentoMonto,
       'basePrice': basePrice,
       'sizeExtra': sizeExtra,
       'iceExtra': iceExtra,
@@ -1854,7 +2021,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     });
   }
 
-  String selectedSize = 'Normal';
+  String selectedSize = 'MEDIANO';
   String selectedIce = 'Normal';
 
   late double basePrice;
@@ -1864,7 +2031,14 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   String? _detailError;
 
   // Precios adicionales por tamaño de vaso (se llenan desde API)
-  Map<String, double> _sizePrices = {'Normal': 0.0};
+  Map<String, double> _sizePrices = {'MEDIANO': 0.0};
+
+  /// Nombre legible de cada tamaño, indexado por su código.
+  ///
+  /// El código es lo que viaja al backend (`NORMAL`) y la etiqueta lo que ve
+  /// el cliente (`Mediano`). Se separan porque el código tiene que ser exacto
+  /// para que se cobre el recargo correcto.
+  Map<String, String> _sizeLabels = {};
 
   // Precios adicionales por nivel de hielo
   final Map<String, double> _icePrices = {
@@ -1878,7 +2052,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   @override
   void initState() {
     super.initState();
-    basePrice = widget.product.price * (1 - widget.descuento);
+    // basePrice queda SIN descuento: el descuento se aplica al final sobre el
+    // total de la unidad (ver _calcularTotal).
+    basePrice = widget.product.price;
     totalPrice = _calcularTotal();
     _loadProductDetail();
     // Paralelizar la carga de tamaños y toppings
@@ -1896,8 +2072,10 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
     try {
       final prefs = await SharedPreferences.getInstance();
+      final isGuest = prefs.getBool('isGuest') ?? false;
       final rawToken = prefs.getString('access_token');
-      if (rawToken == null || rawToken.trim().isEmpty) {
+
+      if ((rawToken == null || rawToken.trim().isEmpty) && !isGuest) {
         if (!mounted) return;
         setState(() {
           _isLoadingDetail = false;
@@ -1907,19 +2085,20 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         return;
       }
 
-      final token = rawToken.trim();
+      final token = (rawToken ?? '').trim();
       final uri = Uri.parse(
         ApiConstants.baseUrl + '/bubblesplash/productos/$id/',
       );
 
-      http.Response response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
+      final headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+      if (token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      http.Response response = await http.get(uri, headers: headers);
 
       if (!mounted) return;
 
@@ -1930,7 +2109,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         final double backendPrice = double.tryParse(priceStr) ?? basePrice;
 
         setState(() {
-          basePrice = backendPrice * (1 - widget.descuento);
+          basePrice = backendPrice;
           totalPrice = _calcularTotal();
           _isLoadingDetail = false;
         });
@@ -1961,26 +2140,28 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       if (productId == 0) return;
 
       final prefs = await SharedPreferences.getInstance();
+      final isGuest = prefs.getBool('isGuest') ?? false;
       final rawToken = prefs.getString('access_token');
-      if (rawToken == null || rawToken.trim().isEmpty) {
+      if ((rawToken == null || rawToken.trim().isEmpty) && !isGuest) {
         debugPrint('No hay access token para cargar toppings');
         return;
       }
 
-      final token = rawToken.trim();
+      final token = (rawToken ?? '').trim();
       final baseUrl = ApiConstants.baseUrl;
 
       // 1) Obtener qué toppings corresponden a este producto
       final uriMap = Uri.parse(baseUrl + '/bubblesplash/productos-toppings/');
 
-      http.Response responseMap = await http.get(
-        uriMap,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
+      final headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+      if (token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      http.Response responseMap = await http.get(uriMap, headers: headers);
 
       if (responseMap.statusCode != 200) {
         debugPrint(
@@ -2027,13 +2208,17 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       // 2) Obtener el catálogo completo de toppings y filtrar por los permitidos
       final uriToppings = Uri.parse(baseUrl + '/bubblesplash/toppings/');
 
+      final headersToppings = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+      if (token.isNotEmpty) {
+        headersToppings['Authorization'] = 'Bearer $token';
+      }
+
       http.Response responseToppings = await http.get(
         uriToppings,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
+        headers: headersToppings,
       );
 
       if (responseToppings.statusCode != 200) {
@@ -2089,25 +2274,27 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
     try {
       final prefs = await SharedPreferences.getInstance();
+      final isGuest = prefs.getBool('isGuest') ?? false;
       final rawToken = prefs.getString('access_token');
-      if (rawToken == null || rawToken.trim().isEmpty) {
+      if ((rawToken == null || rawToken.trim().isEmpty) && !isGuest) {
         debugPrint('No hay access token para cargar tamaños de vaso');
         return;
       }
 
-      final token = rawToken.trim();
+      final token = (rawToken ?? '').trim();
       final uri = Uri.parse(
         ApiConstants.baseUrl + '/bubblesplash/productos-sizes/',
       );
 
-      http.Response response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
+      final headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+      if (token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      http.Response response = await http.get(uri, headers: headers);
 
       if (response.statusCode != 200) {
         debugPrint(
@@ -2118,6 +2305,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
       final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
       final Map<String, double> newSizes = {};
+      final Map<String, String> newLabels = {};
 
       for (final item in data.whereType<Map<String, dynamic>>()) {
         final int proId = (item['pro_int_id'] ?? -1) is int
@@ -2130,11 +2318,35 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         final double extra = double.tryParse(extraStr) ?? 0.0;
         if (sizeName.isEmpty) continue;
         newSizes[sizeName] = extra;
+
+        // El backend manda el nombre legible ya resuelto; si no viniera se
+        // deriva del código, para no enseñar nunca 'NORMAL' al cliente.
+        final String etiqueta = (item['prs_txt_label'] ?? '').toString().trim();
+        newLabels[sizeName] = etiqueta.isNotEmpty
+            ? etiqueta
+            : etiquetaTamano(sizeName);
       }
 
       if (newSizes.isEmpty || !mounted) return;
       setState(() {
         _sizePrices = newSizes;
+        _sizeLabels = newLabels;
+        final String? allowed = widget.allowedSize?.trim();
+        if (allowed != null && allowed.isNotEmpty) {
+          final matchingSize = _sizePrices.keys.firstWhere((k) {
+            final kUpper = k.toUpperCase();
+            final aUpper = allowed.toUpperCase();
+            return kUpper == aUpper ||
+                kUpper.contains(aUpper) ||
+                aUpper.contains(kUpper) ||
+                (aUpper.startsWith('MED') && kUpper.startsWith('MED')) ||
+                (aUpper.startsWith('PEQ') && kUpper.startsWith('PEQ')) ||
+                (aUpper.startsWith('GRA') && kUpper.startsWith('GRA'));
+          }, orElse: () => '');
+          if (matchingSize.isNotEmpty) {
+            selectedSize = matchingSize;
+          }
+        }
         if (!_sizePrices.keys.contains(selectedSize)) {
           final zeroExtra = _sizePrices.entries
               .firstWhere(
@@ -2151,7 +2363,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     }
   }
 
-  double _calcularTotal() {
+  /// Precio de una unidad SIN descuento: base + extra de vaso + hielo + toppings.
+  double get _unitTotalBruto {
     final sizeExtra = _sizePrices[selectedSize] ?? 0.0;
     final iceExtra = _icePrices[selectedIce] ?? 0.0;
     final toppingsTotal = toppings.fold<double>(
@@ -2160,6 +2373,18 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     );
 
     return basePrice + sizeExtra + iceExtra + toppingsTotal;
+  }
+
+  /// ✅ El descuento del canje se aplica sobre el TOTAL de la unidad, no solo
+  /// sobre el precio base. Así una oferta del 100% deja el producto en S/ 0.00
+  /// aunque el vaso sea grande y lleve toppings (los extras tampoco se cobran).
+  double _calcularTotal() {
+    final double bruto = _unitTotalBruto;
+    final double factor = (1 - widget.descuento).clamp(0.0, 1.0);
+    final double neto = bruto * factor;
+
+    // Evita céntimos residuales por punto flotante (0.00000001).
+    return (neto * 100).round() / 100;
   }
 
   void _changeToppingQuantity(int index, int delta) {
@@ -2448,14 +2673,51 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                                     children:
                                         (_sizePrices.keys.isNotEmpty
                                                 ? _sizePrices.keys.toList()
-                                                : ['Normal'])
+                                                : ['MEDIANO'])
                                             .map((size) {
+                                              final String? allowed = widget
+                                                  .allowedSize
+                                                  ?.trim();
+                                              final String sUpper = size
+                                                  .toUpperCase();
+                                              final String aUpper =
+                                                  (allowed ?? '').toUpperCase();
+                                              final bool isMatch =
+                                                  allowed != null &&
+                                                  allowed.isNotEmpty &&
+                                                  (sUpper == aUpper ||
+                                                      sUpper.contains(aUpper) ||
+                                                      aUpper.contains(sUpper) ||
+                                                      (aUpper.startsWith(
+                                                            'MED',
+                                                          ) &&
+                                                          sUpper.startsWith(
+                                                            'MED',
+                                                          )) ||
+                                                      (aUpper.startsWith(
+                                                            'PEQ',
+                                                          ) &&
+                                                          sUpper.startsWith(
+                                                            'PEQ',
+                                                          )) ||
+                                                      (aUpper.startsWith(
+                                                            'GRA',
+                                                          ) &&
+                                                          sUpper.startsWith(
+                                                            'GRA',
+                                                          )));
+                                              final bool isRestricted =
+                                                  allowed != null &&
+                                                  allowed.isNotEmpty &&
+                                                  !isMatch;
                                               final selected =
                                                   selectedSize == size;
                                               final extra =
                                                   _sizePrices[size] ?? 0.0;
                                               String priceLabel;
-                                              if (extra == 0.0) {
+                                              if (isRestricted) {
+                                                priceLabel = 'No disponible';
+                                              } else if (extra == 0.0) {
                                                 priceLabel = 'Sin recargo';
                                               } else if (extra > 0.0) {
                                                 priceLabel =
@@ -2469,103 +2731,129 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                                                 padding: const EdgeInsets.only(
                                                   right: 10,
                                                 ),
-                                                child: GestureDetector(
-                                                  onTap: () {
-                                                    setState(() {
-                                                      selectedSize = size;
-                                                      totalPrice =
-                                                          _calcularTotal();
-                                                    });
-                                                  },
-                                                  child: AnimatedContainer(
-                                                    duration: const Duration(
-                                                      milliseconds: 220,
-                                                    ),
-                                                    curve: Curves.easeOutCubic,
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 14,
-                                                          vertical: 10,
-                                                        ),
-                                                    decoration:
-                                                        PremiumPill.decoration(
-                                                          selected: selected,
-                                                          glow: selected,
-                                                        ),
-                                                    child: Row(
-                                                      mainAxisSize:
-                                                          MainAxisSize.min,
-                                                      children: [
-                                                        Container(
-                                                          padding:
-                                                              const EdgeInsets.all(
-                                                                6,
+                                                child: Opacity(
+                                                  opacity: isRestricted
+                                                      ? 0.45
+                                                      : 1.0,
+                                                  child: GestureDetector(
+                                                    onTap: isRestricted
+                                                        ? () {
+                                                            ScaffoldMessenger.of(
+                                                              context,
+                                                            ).showSnackBar(
+                                                              SnackBar(
+                                                                content: Text(
+                                                                  'Este canje solo aplica para vaso $allowed.',
+                                                                ),
                                                               ),
-                                                          decoration: BoxDecoration(
-                                                            shape:
-                                                                BoxShape.circle,
-                                                            color: selected
-                                                                ? Colors.white
-                                                                      .withOpacity(
-                                                                        0.18,
-                                                                      )
-                                                                : SB.bg,
+                                                            );
+                                                          }
+                                                        : () {
+                                                            setState(() {
+                                                              selectedSize =
+                                                                  size;
+                                                              totalPrice =
+                                                                  _calcularTotal();
+                                                            });
+                                                          },
+                                                    child: AnimatedContainer(
+                                                      duration: const Duration(
+                                                        milliseconds: 220,
+                                                      ),
+                                                      curve:
+                                                          Curves.easeOutCubic,
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 14,
+                                                            vertical: 10,
                                                           ),
-                                                          child: Icon(
-                                                            Icons
-                                                                .local_drink_rounded,
-                                                            size: 18,
-                                                            color: selected
-                                                                ? Colors.white
-                                                                : SB.teal,
+                                                      decoration:
+                                                          PremiumPill.decoration(
+                                                            selected: selected,
+                                                            glow: selected,
                                                           ),
-                                                        ),
-                                                        const SizedBox(
-                                                          width: 10,
-                                                        ),
-                                                        Column(
-                                                          crossAxisAlignment:
-                                                              CrossAxisAlignment
-                                                                  .start,
-                                                          mainAxisSize:
-                                                              MainAxisSize.min,
-                                                          children: [
-                                                            Text(
-                                                              size,
-                                                              style: TextStyle(
-                                                                color: selected
-                                                                    ? Colors
-                                                                          .white
-                                                                    : SB.text,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w900,
-                                                                fontSize: 14,
+                                                      child: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          Container(
+                                                            padding:
+                                                                const EdgeInsets.all(
+                                                                  6,
+                                                                ),
+                                                            decoration: BoxDecoration(
+                                                              shape: BoxShape
+                                                                  .circle,
+                                                              color: selected
+                                                                  ? Colors.white
+                                                                        .withOpacity(
+                                                                          0.18,
+                                                                        )
+                                                                  : SB.bg,
+                                                            ),
+                                                            child: Icon(
+                                                              Icons
+                                                                  .local_drink_rounded,
+                                                              size: 18,
+                                                              color: selected
+                                                                  ? Colors.white
+                                                                  : SB.teal,
+                                                            ),
+                                                          ),
+                                                          const SizedBox(
+                                                            width: 10,
+                                                          ),
+                                                          Column(
+                                                            crossAxisAlignment:
+                                                                CrossAxisAlignment
+                                                                    .start,
+                                                            mainAxisSize:
+                                                                MainAxisSize
+                                                                    .min,
+                                                            children: [
+                                                              Text(
+                                                                // La base guarda el CÓDIGO (NORMAL);
+                                                                // al cliente se le enseña "Mediano".
+                                                                _sizeLabels[size] ??
+                                                                    etiquetaTamano(
+                                                                      size,
+                                                                    ),
+                                                                style: TextStyle(
+                                                                  color:
+                                                                      selected
+                                                                      ? Colors
+                                                                            .white
+                                                                      : SB.text,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w900,
+                                                                  fontSize: 14,
+                                                                ),
                                                               ),
-                                                            ),
-                                                            const SizedBox(
-                                                              height: 2,
-                                                            ),
-                                                            Text(
-                                                              priceLabel,
-                                                              style: theme
-                                                                  .textTheme
-                                                                  .labelSmall
-                                                                  ?.copyWith(
-                                                                    color:
-                                                                        selected
-                                                                        ? Colors.white.withOpacity(
-                                                                            0.9,
-                                                                          )
-                                                                        : SB.sub,
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .w600,
-                                                                  ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ],
+                                                              const SizedBox(
+                                                                height: 2,
+                                                              ),
+                                                              Text(
+                                                                priceLabel,
+                                                                style: theme
+                                                                    .textTheme
+                                                                    .labelSmall
+                                                                    ?.copyWith(
+                                                                      color:
+                                                                          selected
+                                                                          ? Colors.white.withOpacity(
+                                                                              0.9,
+                                                                            )
+                                                                          : SB.sub,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .w600,
+                                                                    ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        ],
+                                                      ),
                                                     ),
                                                   ),
                                                 ),
@@ -2991,6 +3279,7 @@ class CategoryProductsPage extends StatefulWidget {
   final double descuento;
   final List<Map<String, dynamic>> initialPedidos;
   final int? ofcIntId;
+  final String? allowedSize;
 
   const CategoryProductsPage({
     super.key,
@@ -3000,6 +3289,7 @@ class CategoryProductsPage extends StatefulWidget {
     required this.descuento,
     required this.initialPedidos,
     this.ofcIntId,
+    this.allowedSize,
   });
 
   @override
@@ -3012,6 +3302,10 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
 
   // Indica si ya se usó el canje/descuento en algún producto del carrito local
   bool get _canjeYaUsado => _pedidos.any((p) => p['isPromoItem'] == true);
+
+  /// Se llegó aquí desde un canje: elegir producto → pagar, sin pasos extra.
+  bool get _isCanjeExpress =>
+      (widget.ofcIntId != null && widget.ofcIntId! > 0) || widget.descuento > 0;
 
   @override
   void initState() {
@@ -3094,6 +3388,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
         builder: (_) => ProductDetailPage(
           product: product,
           descuento: canUseCanje ? widget.descuento : 0.0,
+          allowedSize: canUseCanje ? widget.allowedSize : null,
         ),
       ),
     );
@@ -3116,6 +3411,12 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
       );
 
       if (!mounted) return;
+
+      // ✅ Canje: directo al pago, sin ofrecer seguir comprando.
+      if (_isCanjeExpress) {
+        await _openCartHere();
+        return;
+      }
 
       showDialog(
         context: context,
@@ -3277,7 +3578,8 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
                         physics: const BouncingScrollPhysics(),
                         padding: const EdgeInsets.only(bottom: 24),
                         itemCount: products.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 12),
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(height: 12),
                         itemBuilder: (context, index) {
                           final product = products[index];
                           final precioOriginal = product.price;
@@ -3621,6 +3923,12 @@ class _OnboardingOverlay extends StatefulWidget {
   final VoidCallback onSkip;
   final int totalSteps;
 
+  /// Alto de la barra de navegación inferior de la pantalla principal.
+  ///
+  /// Se dibuja por encima de esta zona y captura las pulsaciones, así que la
+  /// tarjeta de la guía no puede invadirla o su botón deja de responder.
+  final double reservaInferior;
+
   const _OnboardingOverlay({
     required this.carouselKey,
     required this.categoryChipsKey,
@@ -3630,6 +3938,7 @@ class _OnboardingOverlay extends StatefulWidget {
     required this.onNext,
     required this.onSkip,
     required this.totalSteps,
+    required this.reservaInferior,
   });
 
   @override
@@ -3671,7 +3980,10 @@ class _OnboardingOverlayState extends State<_OnboardingOverlay> {
         final renderBox = context.findRenderObject() as RenderBox?;
         final stackBox = stackContext.findRenderObject() as RenderBox?;
         if (renderBox != null && renderBox.hasSize && stackBox != null) {
-          final offset = renderBox.localToGlobal(Offset.zero, ancestor: stackBox);
+          final offset = renderBox.localToGlobal(
+            Offset.zero,
+            ancestor: stackBox,
+          );
           final size = renderBox.size;
           setState(() {
             _targetRect = Rect.fromLTWH(
@@ -3702,178 +4014,257 @@ class _OnboardingOverlayState extends State<_OnboardingOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
     final stepData = _getStepData();
 
-    double? tooltipTop;
-    double? tooltipBottom;
+    // El alto se toma del ÁREA REAL donde vive la guía, no de la pantalla.
+    //
+    // `_targetRect` se mide respecto al Stack de la página, así que mezclarlo
+    // con `MediaQuery.size.height` comparaba dos sistemas de coordenadas
+    // distintos: la pantalla incluye la barra superior, y la página se dibuja
+    // por debajo de la barra de navegación inferior (`extendBody: true`). El
+    // resultado era que la guía se creía con más espacio del que tenía y la
+    // tarjeta terminaba bajo la barra inferior, que se lleva los toques: el
+    // botón se veía, pero no respondía.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double alto = constraints.maxHeight;
 
-    if (_targetRect != null) {
-      final rect = _targetRect!;
-      if (rect.bottom < size.height * 0.55) {
-        tooltipTop = rect.bottom + 16;
-      } else {
-        tooltipBottom = (size.height - rect.top) + 16;
-      }
-    } else {
-      tooltipTop = size.height / 3;
-    }
+        const double margen = 16;
+        const double limiteArriba = margen;
+        // Se reserva la barra de navegación de la pantalla principal, que se
+        // pinta ENCIMA de esta zona y captura las pulsaciones.
+        final double limiteAbajo = widget.reservaInferior + margen;
 
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: IgnorePointer(
-            ignoring: false,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {},
-              child: CustomPaint(
-                painter: _SpotlightPainter(targetRect: _targetRect),
-              ),
-            ),
-          ),
-        ),
-        AnimatedPositioned(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOutCubic,
-          left: 16,
-          right: 16,
-          top: tooltipTop,
-          bottom: tooltipBottom,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                color: Colors.white,
-                elevation: 16,
-                child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Guía de Uso • ${widget.currentStep + 1}/${widget.totalSteps}',
-                            style: const TextStyle(
-                              color: Colors.black38,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: widget.onSkip,
-                            child: const Text(
-                              'Saltar',
-                              style: TextStyle(
-                                color: Color(0xFFE28F83),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFE28F83).withOpacity(0.12),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              stepData['icon'] as IconData,
-                              color: const Color(0xFFE28F83),
-                              size: 28,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  stepData['title'] as String,
-                                  style: const TextStyle(
-                                    color: Color(0xFF062B35),
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  stepData['desc'] as String,
-                                  style: const TextStyle(
-                                    color: Colors.black54,
-                                    fontSize: 13.5,
-                                    fontWeight: FontWeight.w500,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: List.generate(widget.totalSteps, (i) {
-                              return Container(
-                                width: i == widget.currentStep ? 16 : 6,
-                                height: 6,
-                                margin: const EdgeInsets.symmetric(horizontal: 3),
-                                decoration: BoxDecoration(
-                                  color: i == widget.currentStep
-                                      ? const Color(0xFFE28F83)
-                                      : Colors.black12,
-                                  borderRadius: BorderRadius.circular(99),
-                                ),
-                              );
-                            }),
-                          ),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFE28F83),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 18,
-                                vertical: 10,
-                              ),
-                              elevation: 0,
-                            ),
-                            onPressed: widget.onNext,
-                            child: Text(
-                              widget.currentStep == widget.totalSteps - 1
-                                  ? 'Comenzar'
-                                  : 'Siguiente',
-                              style: const TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+        double? tooltipTop;
+        double? tooltipBottom;
+        double maxAltoTarjeta;
+
+        if (_targetRect != null) {
+          final rect = _targetRect!;
+
+          // Se mide el hueco a cada lado del elemento resaltado y se elige el
+          // mayor, en vez de decidir por un umbral fijo del 55 % que dejaba la
+          // tarjeta apretada cuando el objetivo caía justo en el medio.
+          final double huecoAbajo = alto - limiteAbajo - (rect.bottom + margen);
+          final double huecoArriba = (rect.top - margen) - limiteArriba;
+
+          if (huecoAbajo >= huecoArriba) {
+            tooltipTop = rect.bottom + margen;
+            maxAltoTarjeta = huecoAbajo;
+          } else {
+            tooltipBottom = (alto - rect.top) + margen;
+            maxAltoTarjeta = huecoArriba;
+          }
+        } else {
+          tooltipTop = alto / 3;
+          maxAltoTarjeta = alto - tooltipTop - limiteAbajo;
+        }
+
+        // Suelo de seguridad: si el elemento resaltado ocupa casi todo el alto
+        // no queda hueco a ningún lado. En ese caso se centra la tarjeta sobre
+        // el contenido, que es preferible a dejarla fuera de la vista.
+        final double alturaUtil = alto - limiteArriba - limiteAbajo;
+        final double minimoTarjeta = alturaUtil < 200 ? alturaUtil : 200.0;
+
+        if (maxAltoTarjeta < minimoTarjeta) {
+          maxAltoTarjeta = alturaUtil * 0.7;
+          tooltipTop = limiteArriba + (alturaUtil - maxAltoTarjeta) / 2;
+          tooltipBottom = null;
+        }
+
+        maxAltoTarjeta = maxAltoTarjeta.clamp(minimoTarjeta, alturaUtil);
+
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: IgnorePointer(
+                ignoring: false,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {},
+                  child: CustomPaint(
+                    painter: _SpotlightPainter(targetRect: _targetRect),
                   ),
                 ),
               ),
-            ],
-          ),
-        ),
-      ],
+            ),
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+              left: 16,
+              right: 16,
+              top: tooltipTop,
+              bottom: tooltipBottom,
+              child: ConstrainedBox(
+                // Techo al alto de la tarjeta: sin él, un texto largo o la letra
+                // del sistema agrandada la estiraban hasta sacar el botón
+                // «Siguiente» fuera de la pantalla.
+                constraints: BoxConstraints(maxHeight: maxAltoTarjeta),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Card(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        color: Colors.white,
+                        elevation: 16,
+                        child: Padding(
+                          padding: const EdgeInsets.all(20.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Guía de Uso • ${widget.currentStep + 1}/${widget.totalSteps}',
+                                    style: const TextStyle(
+                                      color: Colors.black38,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: widget.onSkip,
+                                    child: const Text(
+                                      'Saltar',
+                                      style: TextStyle(
+                                        color: Color(0xFFE28F83),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              // El contenido del paso cede espacio antes que el pie:
+                              // si no cabe, se desplaza aquí dentro y los controles de
+                              // navegación siguen a la vista.
+                              Flexible(
+                                child: SingleChildScrollView(
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: const Color(
+                                            0xFFE28F83,
+                                          ).withOpacity(0.12),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          stepData['icon'] as IconData,
+                                          color: const Color(0xFFE28F83),
+                                          size: 28,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              stepData['title'] as String,
+                                              style: const TextStyle(
+                                                color: Color(0xFF062B35),
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              stepData['desc'] as String,
+                                              style: const TextStyle(
+                                                color: Colors.black54,
+                                                fontSize: 13.5,
+                                                fontWeight: FontWeight.w500,
+                                                height: 1.4,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Flexible(
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: List.generate(
+                                        widget.totalSteps,
+                                        (i) {
+                                          return Container(
+                                            width: i == widget.currentStep
+                                                ? 16
+                                                : 6,
+                                            height: 6,
+                                            margin: const EdgeInsets.symmetric(
+                                              horizontal: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: i == widget.currentStep
+                                                  ? const Color(0xFFE28F83)
+                                                  : Colors.black12,
+                                              borderRadius:
+                                                  BorderRadius.circular(99),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFFE28F83),
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 18,
+                                        vertical: 10,
+                                      ),
+                                      elevation: 0,
+                                    ),
+                                    onPressed: widget.onNext,
+                                    child: Text(
+                                      widget.currentStep ==
+                                              widget.totalSteps - 1
+                                          ? 'Comenzar'
+                                          : 'Siguiente',
+                                      style: const TextStyle(
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -3883,20 +4274,23 @@ class _OnboardingOverlayState extends State<_OnboardingOverlay> {
         return {
           'icon': Icons.swap_horizontal_circle_rounded,
           'title': 'Carrusel de Recomendados',
-          'desc': 'Desliza de izquierda a derecha sobre las bebidas en la parte superior para explorar lo más recomendado.',
+          'desc':
+              'Desliza de izquierda a derecha sobre las bebidas en la parte superior para explorar lo más recomendado.',
         };
       case 1:
         return {
           'icon': Icons.category_rounded,
           'title': 'Pestañas de Categoría',
-          'desc': 'Pulsa sobre las categorías para cambiar de sección y filtrar las bebidas al instante.',
+          'desc':
+              'Pulsa sobre las categorías para cambiar de sección y filtrar las bebidas al instante.',
         };
       case 2:
       default:
         return {
           'icon': Icons.swipe_vertical_rounded,
           'title': 'Desliza y Explora',
-          'desc': 'Desliza hacia abajo para ver la lista completa. Pulsa (+) para añadir directamente al carrito o presiona la tarjeta para ver toppings.',
+          'desc':
+              'Desliza hacia abajo para ver la lista completa. Pulsa (+) para añadir directamente al carrito o presiona la tarjeta para ver toppings.',
         };
     }
   }
@@ -3918,18 +4312,22 @@ class _SpotlightPainter extends CustomPainter {
 
     final backgroundPath = Path()..addRect(Offset.zero & size);
     final targetPath = Path()
-      ..addRRect(RRect.fromRectAndRadius(
-        targetRect!,
-        Radius.circular(borderRadius),
-      ));
+      ..addRRect(
+        RRect.fromRectAndRadius(targetRect!, Radius.circular(borderRadius)),
+      );
 
-    final path = Path.combine(PathOperation.difference, backgroundPath, targetPath);
+    final path = Path.combine(
+      PathOperation.difference,
+      backgroundPath,
+      targetPath,
+    );
     canvas.drawPath(path, paint);
   }
 
   @override
   bool shouldRepaint(covariant _SpotlightPainter oldDelegate) {
-    return oldDelegate.targetRect != targetRect || oldDelegate.borderRadius != borderRadius;
+    return oldDelegate.targetRect != targetRect ||
+        oldDelegate.borderRadius != borderRadius;
   }
 }
 
@@ -3944,7 +4342,8 @@ class _FeaturedCarouselWidget extends StatefulWidget {
   });
 
   @override
-  State<_FeaturedCarouselWidget> createState() => _FeaturedCarouselWidgetState();
+  State<_FeaturedCarouselWidget> createState() =>
+      _FeaturedCarouselWidgetState();
 }
 
 class _FeaturedCarouselWidgetState extends State<_FeaturedCarouselWidget> {
@@ -4038,10 +4437,14 @@ class _FeaturedCarouselWidgetState extends State<_FeaturedCarouselWidget> {
 
   String _capitalizeText(String text) {
     if (text.isEmpty) return text;
-    return text.split(' ').map((word) {
-      if (word.isEmpty) return '';
-      return word[0].toUpperCase() + word.substring(1).toLowerCase();
-    }).where((w) => w.isNotEmpty).join(' ');
+    return text
+        .split(' ')
+        .map((word) {
+          if (word.isEmpty) return '';
+          return word[0].toUpperCase() + word.substring(1).toLowerCase();
+        })
+        .where((w) => w.isNotEmpty)
+        .join(' ');
   }
 
   @override
@@ -4125,7 +4528,8 @@ class _KeepAliveWrapper extends StatefulWidget {
   State<_KeepAliveWrapper> createState() => _KeepAliveWrapperState();
 }
 
-class _KeepAliveWrapperState extends State<_KeepAliveWrapper> with AutomaticKeepAliveClientMixin {
+class _KeepAliveWrapperState extends State<_KeepAliveWrapper>
+    with AutomaticKeepAliveClientMixin {
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -4155,9 +4559,10 @@ class _MenuSkeletonLoaderState extends State<_MenuSkeletonLoader>
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     )..repeat(reverse: true);
-    _opacityAnim = Tween<double>(begin: 0.35, end: 0.7).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _opacityAnim = Tween<double>(
+      begin: 0.35,
+      end: 0.7,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -4179,7 +4584,9 @@ class _MenuSkeletonLoaderState extends State<_MenuSkeletonLoader>
               padding: EdgeInsets.symmetric(vertical: 24),
               child: Center(
                 child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Color.fromARGB(255, 27, 111, 129)),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Color.fromARGB(255, 27, 111, 129),
+                  ),
                 ),
               ),
             ),
@@ -4241,7 +4648,11 @@ class _MenuSkeletonLoaderState extends State<_MenuSkeletonLoader>
                 itemBuilder: (context, index) {
                   final widths = [80.0, 100.0, 90.0, 110.0];
                   return Padding(
-                    padding: const EdgeInsets.only(right: 16, top: 8, bottom: 8),
+                    padding: const EdgeInsets.only(
+                      right: 16,
+                      top: 8,
+                      bottom: 8,
+                    ),
                     child: Container(
                       width: widths[index % widths.length],
                       decoration: BoxDecoration(
@@ -4301,7 +4712,10 @@ class _MenuSkeletonLoaderState extends State<_MenuSkeletonLoader>
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: const Color(0xFFF1F5F9), width: 1),
+                              border: Border.all(
+                                color: const Color(0xFFF1F5F9),
+                                width: 1,
+                              ),
                             ),
                             child: Row(
                               children: [
@@ -4316,15 +4730,20 @@ class _MenuSkeletonLoaderState extends State<_MenuSkeletonLoader>
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Container(
                                         width: 140,
                                         height: 14,
                                         decoration: BoxDecoration(
-                                          color: Colors.grey.withOpacity(opacity),
-                                          borderRadius: BorderRadius.circular(4),
+                                          color: Colors.grey.withOpacity(
+                                            opacity,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                         ),
                                       ),
                                       const SizedBox(height: 6),
@@ -4332,8 +4751,12 @@ class _MenuSkeletonLoaderState extends State<_MenuSkeletonLoader>
                                         width: 80,
                                         height: 12,
                                         decoration: BoxDecoration(
-                                          color: Colors.grey.withOpacity(opacity),
-                                          borderRadius: BorderRadius.circular(4),
+                                          color: Colors.grey.withOpacity(
+                                            opacity,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                         ),
                                       ),
                                       const SizedBox(height: 6),
@@ -4341,8 +4764,12 @@ class _MenuSkeletonLoaderState extends State<_MenuSkeletonLoader>
                                         width: 60,
                                         height: 14,
                                         decoration: BoxDecoration(
-                                          color: Colors.grey.withOpacity(opacity),
-                                          borderRadius: BorderRadius.circular(4),
+                                          color: Colors.grey.withOpacity(
+                                            opacity,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -4375,4 +4802,3 @@ List<Category> _parseCategoriesIsolate(String rawJson) {
       .toList()
     ..sort((a, b) => a.order.compareTo(b.order));
 }
-

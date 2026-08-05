@@ -8,6 +8,7 @@ import 'package:bubblesplash/constants/backend_config.dart';
 import 'dart:convert';
 
 import 'dart:typed_data';
+import 'package:bubblesplash/utils/tamanos.dart';
 
 class CartPage extends StatefulWidget {
   final List<Map<String, dynamic>> initialPedidos;
@@ -30,6 +31,10 @@ class _CartPageState extends State<CartPage> {
   String selectedDineOption = 'En el Local';
   double get _descuento => widget.descuento;
   bool _isProcessingPago = false;
+
+  /// El carrito viene de un canje de oferta: el flujo debe cerrarse rápido.
+  bool get _esCanje =>
+      (widget.ofcIntId != null && widget.ofcIntId! > 0) || widget.descuento > 0;
 
   // =========================
   // ✅ MODAL PREMIUM (reemplaza SnackBar)
@@ -157,37 +162,30 @@ class _CartPageState extends State<CartPage> {
     return double.tryParse(value?.toString() ?? '') ?? 0.0;
   }
 
-  double _computeUnitTotal(Map<String, dynamic> item) {
-    double price;
-    if (item.containsKey('basePrice') ||
-        item.containsKey('sizeExtra') ||
-        item.containsKey('iceExtra') ||
-        item.containsKey('toppingsTotal')) {
-      final base = _asDouble(item['basePrice']);
-      final sizeExtra = _asDouble(item['sizeExtra']);
-      final iceExtra = _asDouble(item['iceExtra']);
+  /// Redondea a 2 decimales para que no aparezcan céntimos fantasma.
+  double _round2(double value) => (value * 100).round() / 100;
 
-      double toppingsTotal = _asDouble(item['toppingsTotal']);
-      if (toppingsTotal == 0.0) {
-        final rawToppings = item['toppings'];
-        if (rawToppings is List) {
-          toppingsTotal = rawToppings.fold<double>(0.0, (sum, t) {
-            if (t is Map) return sum + _asDouble(t['price']);
-            return sum;
-          });
-        }
-      }
-
-      price = base + sizeExtra + iceExtra + toppingsTotal;
-    } else {
-      price = _asDouble(item['price']);
+  /// Porcentaje de descuento (0.0 - 1.0) que aplica a ESTE ítem.
+  ///
+  /// El canje beneficia a un solo producto del carrito: el que se marcó como
+  /// promocional al agregarlo. El resto se cobra a precio normal.
+  double _itemDiscount(Map<String, dynamic> item) {
+    if (item.containsKey('discountPercent')) {
+      final value = _asDouble(item['discountPercent']);
+      return value.clamp(0.0, 1.0);
     }
-    return price;
+    if (item['isPromoItem'] == true) {
+      return _descuento.clamp(0.0, 1.0);
+    }
+    return 0.0;
   }
 
-  // Precio unitario sin aplicar el descuento global del carrito
+  /// Precio unitario SIN descuento: base + extra de vaso + hielo + toppings.
   double _computeUnitTotalSinDescuento(Map<String, dynamic> item) {
-    double price;
+    if (item.containsKey('priceOriginal')) {
+      return _round2(_asDouble(item['priceOriginal']));
+    }
+
     if (item.containsKey('basePrice') ||
         item.containsKey('sizeExtra') ||
         item.containsKey('iceExtra') ||
@@ -207,11 +205,22 @@ class _CartPageState extends State<CartPage> {
         }
       }
 
-      price = base + sizeExtra + iceExtra + toppingsTotal;
-    } else {
-      price = _asDouble(item['price']);
+      return _round2(base + sizeExtra + iceExtra + toppingsTotal);
     }
-    return price;
+
+    return _round2(_asDouble(item['price']));
+  }
+
+  /// ✅ Precio unitario REAL a cobrar.
+  ///
+  /// El descuento del canje se aplica sobre el total del ítem (base + tamaño +
+  /// hielo + toppings), no solo sobre el precio base. Con una oferta del 100%
+  /// el resultado es 0.00 aunque el vaso sea grande y tenga extras.
+  double _computeUnitTotal(Map<String, dynamic> item) {
+    final double bruto = _computeUnitTotalSinDescuento(item);
+    final double descuento = _itemDiscount(item);
+    if (descuento <= 0) return bruto;
+    return _round2(bruto * (1 - descuento));
   }
 
   List<int> _extractToppingsIds(Map<String, dynamic> item) {
@@ -244,9 +253,7 @@ class _CartPageState extends State<CartPage> {
   /// - Lista de mapas con {id | top_int_id, qty?}  -> "toppings":[{"top_int_id":x,"qty":y}]
   /// - Lista de ids (int/string)                    -> "toppings_ids":[x,y]
   /// - Campo previo 'toppingsIds'/'toppings_ids'    -> "toppings_ids":[x,y]
-  Map<String, dynamic> _buildToppingsBackendPayload(
-    Map<String, dynamic> item,
-  ) {
+  Map<String, dynamic> _buildToppingsBackendPayload(Map<String, dynamic> item) {
     final dynamic rawToppings = item['toppings'];
     final dynamic rawToppingsIds = item['toppingsIds'] ?? item['toppings_ids'];
 
@@ -261,10 +268,7 @@ class _CartPageState extends State<CartPage> {
           if (id <= 0) continue;
           final int qtyRaw = _asInt(t['qty'] ?? 1);
           final int qty = qtyRaw <= 0 ? 1 : qtyRaw;
-          toppingsObjects.add({
-            'top_int_id': id,
-            'qty': qty,
-          });
+          toppingsObjects.add({'top_int_id': id, 'qty': qty});
           toppingsIdsSet.add(id);
         } else {
           final int id = _asInt(t);
@@ -599,9 +603,141 @@ class _CartPageState extends State<CartPage> {
     }
   }
 
+  /// Ítems del carrito en el formato que espera el backend.
+  ///
+  /// Se extrajo a su propio método para que la consulta del total y la
+  /// creación del pedido usen EXACTAMENTE el mismo cuerpo. Si difirieran,
+  /// el importe consultado no sería el que se acaba cobrando.
+  List<Map<String, dynamic>> _construirItemsPayload() {
+    final List<Map<String, dynamic>> itemsPayload = [];
+    for (final item in pedidos) {
+      final dynamic rawProductId = item.containsKey('productId')
+          ? item['productId']
+          : item['id'];
+      final int proIntId = _asInt(rawProductId);
+      if (proIntId <= 0) continue;
+
+      final int quantity = _asInt(item['quantity'] ?? 1);
+      final String size = (item['size'] ?? '').toString().toUpperCase();
+      final String notes = (item['notes'] ?? '').toString();
+      final double priceWithDiscount = _computeUnitTotal(item);
+      final double sizeExtraValue = _asDouble(item['sizeExtra']);
+
+      // Construir item base (el backend calcula el precio, solo usamos
+      // priceWithDiscount en la app para saldo y recibo).
+      final Map<String, dynamic> itemMap = <String, dynamic>{
+        'pro_int_id': proIntId,
+        'pdi_txt_size': size,
+        'pdi_int_quantity': quantity,
+        'pdi_txt_notes': notes,
+      };
+
+      // ✅ Indica al backend sobre QUÉ ítem debe aplicar el canje, para que
+      //    el descuento caiga en el producto correcto (base + tamaño +
+      //    toppings) y no se reparta sobre todo el carrito.
+      if (_itemDiscount(item) > 0) {
+        itemMap['pdi_bool_promo'] = true;
+      }
+
+      // Enviar explícitamente el valor extra asociado al tamaño del vaso,
+      // para que el backend pueda considerar este monto al calcular el total.
+      if (sizeExtraValue != 0.0) {
+        itemMap['pdi_de_size_extraprice'] = sizeExtraValue;
+      }
+
+      // Adjuntar toppings según corresponda
+      final Map<String, dynamic> toppingsPayload = _buildToppingsBackendPayload(
+        item,
+      );
+      itemMap.addAll(toppingsPayload);
+
+      // Log de diagnóstico: cómo está calculando la app cada ítem
+      try {
+        final double base = _asDouble(item['basePrice']);
+        final double sizeExtra = sizeExtraValue;
+        final double iceExtra = _asDouble(item['iceExtra']);
+        final double toppingsTotal = _asDouble(item['toppingsTotal']);
+        debugPrint(
+          'ITEM PEDIDO APP => pro_int_id=$proIntId, size=$size, qty=$quantity, '
+          'base=$base, sizeExtra=$sizeExtra, iceExtra=$iceExtra, '
+          'toppingsTotal=$toppingsTotal, unitTotalApp=$priceWithDiscount, '
+          'toppingsPayload=$toppingsPayload',
+        );
+      } catch (_) {}
+
+      itemsPayload.add(itemMap);
+    }
+
+    return itemsPayload;
+  }
+
+  Map<String, dynamic> _construirPayload({
+    required String deliveryCode,
+    required List<Map<String, dynamic>> itemsPayload,
+  }) {
+    final Map<String, dynamic> payload = <String, dynamic>{
+      'ped_txt_delivery': deliveryCode,
+      'ped_txt_channel': 'APP',
+      'items': itemsPayload,
+    };
+
+    // Si hay una oferta/canje asociado, lo adjuntamos.
+    final int? ofcId = widget.ofcIntId;
+    if (ofcId != null && ofcId > 0) {
+      payload['ofc_int_id'] = ofcId;
+    }
+
+    return payload;
+  }
+
+  /// Total que va a cobrar el backend, consultado ANTES de crear el pedido.
+  ///
+  /// El servidor recalcula el precio por su cuenta: aplica el recargo por
+  /// tamaño y el canje solo si sigue siendo válido. Preguntárselo antes evita
+  /// el caso que se dio en producción: el carrito guardado en el teléfono
+  /// conservaba el precio con descuento de un canje que ya no viajaba en la
+  /// petición, así que la app mostraba S/ 10 y el backend cobraba S/ 25.
+  ///
+  /// Devuelve `null` si no se pudo consultar; en ese caso se continúa y queda
+  /// la comprobación posterior al cobro como última red.
+  Future<double?> _totalSegunBackend(String deliveryCode) async {
+    try {
+      final itemsPayload = _construirItemsPayload();
+      if (itemsPayload.isEmpty) return null;
+
+      final response = await http.post(
+        BackendConfig.api('bubblesplash/pedidos/preview/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer __placeholder__',
+        },
+        body: jsonEncode(
+          _construirPayload(
+            deliveryCode: deliveryCode,
+            itemsPayload: itemsPayload,
+          ),
+        ),
+      );
+
+      if (response.statusCode != 200) {
+        debugPrint(
+          'Preview no disponible: ${response.statusCode} ${response.body}',
+        );
+        return null;
+      }
+
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) return null;
+      return double.tryParse((decoded['total'] ?? '').toString());
+    } catch (e) {
+      debugPrint('Excepción consultando el total al backend: $e');
+      return null;
+    }
+  }
+
   Future<Map<String, dynamic>?> _crearPedidoBackend() async {
     try {
-
       String deliveryCode;
       if (selectedDineOption.toLowerCase().contains('llevar')) {
         deliveryCode = 'PARA_LLEVAR';
@@ -609,56 +745,7 @@ class _CartPageState extends State<CartPage> {
         deliveryCode = 'EN_LOCAL';
       }
 
-      final List<Map<String, dynamic>> itemsPayload = [];
-      for (final item in pedidos) {
-        final dynamic rawProductId = item.containsKey('productId')
-            ? item['productId']
-            : item['id'];
-        final int proIntId = _asInt(rawProductId);
-        if (proIntId <= 0) continue;
-
-        final int quantity = _asInt(item['quantity'] ?? 1);
-        final String size = (item['size'] ?? '').toString().toUpperCase();
-        final String notes = (item['notes'] ?? '').toString();
-        final double priceWithDiscount = _computeUnitTotal(item);
-        final double sizeExtraValue = _asDouble(item['sizeExtra']);
-
-        // Construir item base (el backend calcula el precio, solo usamos
-        // priceWithDiscount en la app para saldo y recibo).
-        final Map<String, dynamic> itemMap = <String, dynamic>{
-          'pro_int_id': proIntId,
-          'pdi_txt_size': size,
-          'pdi_int_quantity': quantity,
-          'pdi_txt_notes': notes,
-        };
-
-        // Enviar explícitamente el valor extra asociado al tamaño del vaso,
-        // para que el backend pueda considerar este monto al calcular el total.
-        if (sizeExtraValue != 0.0) {
-          itemMap['pdi_de_size_extraprice'] = sizeExtraValue;
-        }
-
-        // Adjuntar toppings según corresponda
-        final Map<String, dynamic> toppingsPayload =
-            _buildToppingsBackendPayload(item);
-        itemMap.addAll(toppingsPayload);
-
-        // Log de diagnóstico: cómo está calculando la app cada ítem
-        try {
-          final double base = _asDouble(item['basePrice']);
-          final double sizeExtra = sizeExtraValue;
-          final double iceExtra = _asDouble(item['iceExtra']);
-          final double toppingsTotal = _asDouble(item['toppingsTotal']);
-          debugPrint(
-            'ITEM PEDIDO APP => pro_int_id=$proIntId, size=$size, qty=$quantity, '
-            'base=$base, sizeExtra=$sizeExtra, iceExtra=$iceExtra, '
-            'toppingsTotal=$toppingsTotal, unitTotalApp=$priceWithDiscount, '
-            'toppingsPayload=$toppingsPayload',
-          );
-        } catch (_) {}
-
-        itemsPayload.add(itemMap);
-      }
+      final List<Map<String, dynamic>> itemsPayload = _construirItemsPayload();
 
       // Log de diagnóstico: total que espera la app vs lo que luego descuenta el backend
       debugPrint(
@@ -676,17 +763,10 @@ class _CartPageState extends State<CartPage> {
         return null;
       }
 
-      final Map<String, dynamic> pedidoPayload = <String, dynamic>{
-        'ped_txt_delivery': deliveryCode,
-        'ped_txt_channel': 'APP',
-        'items': itemsPayload,
-      };
-
-      // Si hay una oferta/canje asociado, lo adjuntamos.
-      final int? ofcId = widget.ofcIntId;
-      if (ofcId != null && ofcId > 0) {
-        pedidoPayload['ofc_int_id'] = ofcId;
-      }
+      final Map<String, dynamic> pedidoPayload = _construirPayload(
+        deliveryCode: deliveryCode,
+        itemsPayload: itemsPayload,
+      );
 
       final String body = jsonEncode(pedidoPayload);
 
@@ -706,7 +786,9 @@ class _CartPageState extends State<CartPage> {
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        debugPrint('CREAR PEDIDO OK => ${response.statusCode} ${response.body}');
+        debugPrint(
+          'CREAR PEDIDO OK => ${response.statusCode} ${response.body}',
+        );
         return jsonDecode(response.body) as Map<String, dynamic>;
       } else {
         debugPrint(
@@ -753,7 +835,7 @@ class _CartPageState extends State<CartPage> {
     final double price = _computeUnitTotal(item);
     final int quantity = _asInt(item['quantity'] ?? 1);
 
-    final String sizeText = (item['size'] ?? '').toString();
+    final String sizeText = etiquetaTamano((item['size'] ?? '').toString());
     final String iceText = (item['ice'] ?? '').toString();
     final String toppingsText = _formatToppingsForUi(item).trim();
     final List<String> details = [
@@ -762,8 +844,10 @@ class _CartPageState extends State<CartPage> {
       if (toppingsText.isNotEmpty) toppingsText,
     ];
 
-    final String? imagePath = item['image'] ?? item['imagePath'] ?? item['imageUrl'];
-    final bool isNetworkImage = imagePath != null &&
+    final String? imagePath =
+        item['image'] ?? item['imagePath'] ?? item['imageUrl'];
+    final bool isNetworkImage =
+        imagePath != null &&
         (imagePath.startsWith('http') || imagePath.startsWith('https'));
 
     // Detectar si es base64 (simple: cadena larga, sin http, y parece base64)
@@ -787,7 +871,9 @@ class _CartPageState extends State<CartPage> {
       }
     }
 
-    debugPrint('CartPage _buildCartItem: imagePath=$imagePath, isNetworkImage=$isNetworkImage, isBase64Image=$isBase64Image, item=$item');
+    debugPrint(
+      'CartPage _buildCartItem: imagePath=$imagePath, isNetworkImage=$isNetworkImage, isBase64Image=$isBase64Image, item=$item',
+    );
 
     Widget imageWidget;
     if (isNetworkImage) {
@@ -870,8 +956,7 @@ class _CartPageState extends State<CartPage> {
                 if (details.isNotEmpty)
                   Text(
                     details.join(', '),
-                    style:
-                        const TextStyle(fontSize: 12, color: Colors.black54),
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -965,24 +1050,29 @@ class _CartPageState extends State<CartPage> {
           ),
         ),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16.0, top: 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                const Text(
-                  'Precio',
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-                Text(
-                  'S/. ${_totalPrice.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+          Align(
+            alignment: Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    'Precio',
+                    style: TextStyle(fontSize: 12, color: Colors.white70),
                   ),
-                ),
-              ],
+                  Text(
+                    'S/. ${_totalPrice.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -1133,6 +1223,93 @@ class _CartPageState extends State<CartPage> {
                   child: ElevatedButton(
                     onPressed: (totalItems > 0 && !_isProcessingPago)
                         ? () async {
+                            final prefs = await SharedPreferences.getInstance();
+                            final isGuest = prefs.getBool('isGuest') ?? false;
+                            if (isGuest) {
+                              if (!mounted) return;
+                              final login = await showDialog<bool>(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  backgroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  title: Row(
+                                    children: const [
+                                      Icon(
+                                        Icons.lock_outline_rounded,
+                                        color: Color(0xFF1B6F81),
+                                        size: 28,
+                                      ),
+                                      SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          'Acceso Requerido',
+                                          style: TextStyle(
+                                            color: Color(0xFF062B35),
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 18,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  content: const Text(
+                                    'Para realizar pedidos y pagar, por favor inicia sesión o crea una cuenta.',
+                                    style: TextStyle(
+                                      color: Colors.black54,
+                                      fontSize: 14.5,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(context, false),
+                                      child: const Text(
+                                        'Cancelar',
+                                        style: TextStyle(
+                                          color: Colors.grey,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                    ElevatedButton(
+                                      onPressed: () =>
+                                          Navigator.pop(context, true),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(
+                                          0xFF1B6F81,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        'Iniciar sesión',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (login == true && mounted) {
+                                Navigator.pushNamedAndRemoveUntil(
+                                  context,
+                                  '/login',
+                                  (route) => false,
+                                );
+                              }
+                              return;
+                            }
+
                             setState(() => _isProcessingPago = true);
                             try {
                               final confirm = await showDialog<bool>(
@@ -1157,9 +1334,11 @@ class _CartPageState extends State<CartPage> {
                                           color: Color(0xFF42A5F5),
                                         ),
                                         const SizedBox(height: 16),
-                                        const Text(
-                                          'Confirmar pago',
-                                          style: TextStyle(
+                                        Text(
+                                          _esCanje
+                                              ? 'Confirmar canje'
+                                              : 'Confirmar pago',
+                                          style: const TextStyle(
                                             fontSize: 22,
                                             fontWeight: FontWeight.bold,
                                             color: Color(0xFF1B6F81),
@@ -1167,7 +1346,13 @@ class _CartPageState extends State<CartPage> {
                                         ),
                                         const SizedBox(height: 12),
                                         Text(
-                                          '¿Deseas pagar S/. ${_totalPrice.toStringAsFixed(2)}?',
+                                          // Con un canje del 100% el total es 0:
+                                          // no tiene sentido preguntar "¿pagar S/ 0.00?".
+                                          _totalPrice <= 0
+                                              ? 'Tu canje cubre el 100% de este pedido. ¿Confirmas el pedido sin costo?'
+                                              : _esCanje
+                                              ? 'Con tu canje pagarás S/. ${_totalPrice.toStringAsFixed(2)} en lugar de S/. ${_subtotalSinDescuento.toStringAsFixed(2)}. ¿Confirmas?'
+                                              : '¿Deseas pagar S/. ${_totalPrice.toStringAsFixed(2)}?',
                                           style: const TextStyle(
                                             fontSize: 16,
                                             color: Colors.black87,
@@ -1189,7 +1374,9 @@ class _CartPageState extends State<CartPage> {
                                                   ),
                                                   shape: RoundedRectangleBorder(
                                                     borderRadius:
-                                                        BorderRadius.circular(12),
+                                                        BorderRadius.circular(
+                                                          12,
+                                                        ),
                                                   ),
                                                   padding:
                                                       const EdgeInsets.symmetric(
@@ -1215,7 +1402,9 @@ class _CartPageState extends State<CartPage> {
                                                   ),
                                                   shape: RoundedRectangleBorder(
                                                     borderRadius:
-                                                        BorderRadius.circular(12),
+                                                        BorderRadius.circular(
+                                                          12,
+                                                        ),
                                                   ),
                                                   padding:
                                                       const EdgeInsets.symmetric(
@@ -1242,11 +1431,47 @@ class _CartPageState extends State<CartPage> {
                               );
                               if (confirm != true) return;
 
-                              final double? saldoAntes = await _getSaldoBackend();
+                              final double? saldoAntes =
+                                  await _getSaldoBackend();
 
                               final tieneSaldo =
                                   await _verificarSaldoSuficiente();
                               if (!tieneSaldo) return;
+
+                              // Se compara el total con el que calcula el
+                              // servidor ANTES de crear el pedido.
+                              //
+                              // La comprobación que había se hacía después de
+                              // cobrar: detectaba el desajuste, sí, pero el
+                              // dinero ya había salido de la billetera. Aquí
+                              // se corta antes de que se mueva nada.
+                              final String deliveryCode =
+                                  selectedDineOption.toLowerCase().contains(
+                                    'llevar',
+                                  )
+                                  ? 'PARA_LLEVAR'
+                                  : 'EN_LOCAL';
+
+                              final double? totalServidor =
+                                  await _totalSegunBackend(deliveryCode);
+
+                              if (totalServidor != null &&
+                                  (totalServidor - _totalPrice).abs() > 0.01) {
+                                if (!mounted) return;
+                                await _showPremiumModal(
+                                  title: 'El precio cambió',
+                                  message:
+                                      'El total de tu pedido es S/. '
+                                      '${totalServidor.toStringAsFixed(2)}, no S/. '
+                                      '${_totalPrice.toStringAsFixed(2)}.\n\n'
+                                      'Puede que un descuento ya se haya usado o '
+                                      'haya vencido. No se cobró nada; vuelve a '
+                                      'armar tu pedido para ver el precio real.',
+                                  icon: Icons.price_change_rounded,
+                                  accent: const Color(0xFFE53935),
+                                );
+                                return;
+                              }
 
                               final pedidoData = await _crearPedidoBackend();
                               if (pedidoData == null) return;
@@ -1278,10 +1503,10 @@ class _CartPageState extends State<CartPage> {
                                 }
                               }
 
-                              final List<Map<String, dynamic>> finalPedidosCopy =
-                                  pedidos
-                                      .map((e) => Map<String, dynamic>.from(e))
-                                      .toList();
+                              final List<Map<String, dynamic>>
+                              finalPedidosCopy = pedidos
+                                  .map((e) => Map<String, dynamic>.from(e))
+                                  .toList();
 
                               final double localSubtotal = _totalPrice;
 
@@ -1301,9 +1526,11 @@ class _CartPageState extends State<CartPage> {
                               }
 
                               final String orderNumber =
-                                  (pedidoData['ped_txt_number'] ?? '').toString();
+                                  (pedidoData['ped_txt_number'] ?? '')
+                                      .toString();
 
-                              final prefs = await SharedPreferences.getInstance();
+                              final prefs =
+                                  await SharedPreferences.getInstance();
                               await prefs.remove('cart_pedidos');
 
                               if (mounted) {
@@ -1324,6 +1551,14 @@ class _CartPageState extends State<CartPage> {
                                     backendTime: backendTime,
                                     alreadyPaid: true,
                                     applyWalletDeduction: true,
+                                    // La boleta se emite con los datos de la
+                                    // sede donde se registró el pedido.
+                                    sedeJson:
+                                        pedidoData['sede']
+                                            is Map<String, dynamic>
+                                        ? pedidoData['sede']
+                                              as Map<String, dynamic>
+                                        : null,
                                   ),
                                 ),
                               );

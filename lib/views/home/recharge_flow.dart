@@ -240,7 +240,10 @@ class _RechargeFlowPageState extends State<RechargeFlowPage> {
     final fecha = _date != null ? '${_date!.day.toString().padLeft(2, '0')}/${_date!.month.toString().padLeft(2, '0')}/${_date!.year} ${_date!.hour}:${_date!.minute.toString().padLeft(2, '0')}' : '-';
     final codigo = 'REC${DateTime.now().millisecondsSinceEpoch}';
     final prefs = await SharedPreferences.getInstance();
-    final user = FirebaseAuth.instance.currentUser;
+    User? user;
+    try {
+      user = FirebaseAuth.instance.currentUser;
+    } catch (_) {}
     final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
     final String? userUniqueId = user?.uid ?? (email != null && email.isNotEmpty ? email : null);
     final String? keyMovs = userUniqueId != null ? 'movimientos_$userUniqueId' : null;

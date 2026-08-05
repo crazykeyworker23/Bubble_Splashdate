@@ -1,8 +1,12 @@
 import 'dart:convert';
+import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:crypto/crypto.dart';
 
 import '../../constants/api_constants.dart';
 import 'package:http/http.dart' as http;
@@ -15,6 +19,7 @@ import '../../widgets/custom_button.dart';
 import '../login/register_page.dart';
 import 'home_page.dart';
 import 'forgot_password_page.dart';
+import 'package:bubblesplash/services/notificaciones_store.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -29,6 +34,8 @@ class _LoginPageState extends State<LoginPage> {
 
   bool _loadingGoogle = false;
   bool _loadingEmail = false;
+  bool _loadingApple = false;
+  bool _loadingGuest = false;
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -73,6 +80,9 @@ class _LoginPageState extends State<LoginPage> {
         prefs.setBool('rememberMe', false),
       ],
       prefs.setBool('isLoggedIn', true),
+      // Se descarta el historial de quien usara antes este teléfono.
+      NotificacionesStore.limpiar(),
+      prefs.setBool('isGuest', false),
     ]);
   }
 
@@ -94,6 +104,9 @@ class _LoginPageState extends State<LoginPage> {
       prefs.setString('savedEmail', email),
       prefs.setBool('rememberMe', true),
       prefs.setBool('isLoggedIn', true),
+      // Se descarta el historial de quien usara antes este teléfono.
+      NotificacionesStore.limpiar(),
+      prefs.setBool('isGuest', false),
     ]);
   }
 
@@ -117,7 +130,7 @@ class _LoginPageState extends State<LoginPage> {
   Color get _bgPink => const Color.fromARGB(255, 25, 108, 119); // rosado claro
   Color get _deepPink => const Color.fromARGB(255, 231, 231, 231); // acento
 
-  bool get busy => _loadingEmail || _loadingGoogle;
+  bool get busy => _loadingEmail || _loadingGoogle || _loadingApple || _loadingGuest;
 
   Widget _fieldLabel(String text) {
     return Padding(
@@ -230,7 +243,7 @@ class _LoginPageState extends State<LoginPage> {
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (res.statusCode == 200) {
         final dynamic decoded = jsonDecode(res.body);
@@ -344,12 +357,16 @@ class _LoginPageState extends State<LoginPage> {
             children: [
               const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 28),
               const SizedBox(width: 12),
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Color(0xFF062B35),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 18,
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFF062B35),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -384,10 +401,10 @@ class _LoginPageState extends State<LoginPage> {
     try {
       setState(() => _loadingGoogle = true);
 
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn().timeout(const Duration(seconds: 20));
       if (googleUser == null) return;
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication.timeout(const Duration(seconds: 15));
 
       final oauthCredential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
@@ -447,6 +464,169 @@ class _LoginPageState extends State<LoginPage> {
       _handleLoginError(e);
     } finally {
       if (mounted) setState(() => _loadingGoogle = false);
+    }
+  }
+
+  String _generateNonce([int length = 32]) {
+    const charset = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+    final random = Random.secure();
+    return List.generate(length, (_) => charset[random.nextInt(charset.length)]).join();
+  }
+
+  String _sha256ofString(String input) {
+    final bytes = utf8.encode(input);
+    final digest = sha256.convert(bytes);
+    return digest.toString();
+  }
+
+  Future<void> _handleAppleSignIn() async {
+    try {
+      setState(() => _loadingApple = true);
+
+      final appleProvider = AppleAuthProvider();
+      appleProvider.addScope('email');
+      appleProvider.addScope('fullName');
+
+      final userCredential = await FirebaseAuth.instance.signInWithProvider(appleProvider);
+      final user = userCredential.user;
+      if (user == null) throw Exception('No se pudo iniciar sesión con Firebase.');
+
+      final firebaseIdToken = await _getFirebaseIdTokenOrThrow(user);
+      final backendData = await _loginBackendWithFirebase(
+        firebaseIdToken: firebaseIdToken,
+        serviceCode: kServiceCode,
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+
+      final dynamic tokenContainer =
+          (backendData['data'] is Map<String, dynamic>) ? backendData['data'] : backendData;
+
+      final dynamic accessRaw = tokenContainer['access'] ?? tokenContainer['access_token'] ?? tokenContainer['token'];
+      final dynamic refreshRaw = tokenContainer['refresh'] ?? tokenContainer['refresh_token'];
+
+      final String accessToken = accessRaw?.toString().trim() ?? '';
+      final String refreshToken = refreshRaw?.toString().trim() ?? '';
+
+      if (accessToken.isEmpty) {
+        throw Exception('No se recibió access_token desde el backend para Apple.');
+      }
+
+      // Guardar todos los tokens y credenciales en paralelo
+      String? displayName = user.displayName;
+      if (displayName == null || displayName.trim().isEmpty) {
+        displayName = user.email?.split('@').first ?? 'Usuario de Apple';
+      }
+
+      await Future.wait([
+        prefs.setString('access_token', accessToken),
+        if (refreshToken.isNotEmpty) prefs.setString('refresh_token', refreshToken),
+        prefs.setString('google_email', user.email ?? ''),
+        if (displayName != null && displayName.isNotEmpty) prefs.setString('google_name', displayName),
+        prefs.setBool('rememberMe', true),
+        prefs.setBool('isLoggedIn', true),
+      // Se descarta el historial de quien usara antes este teléfono.
+      NotificacionesStore.limpiar(),
+        prefs.setBool('isGuest', false),
+      ]);
+
+      // Asegurar que el usuario de Apple tenga sucursal asociada
+      await UserInfoService.ensureUserHasServiceId();
+
+      await FcmService.initAndSendTokenIfPossible();
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomePage()),
+      );
+    } catch (e) {
+      debugPrint('❌ Error Apple Sign-In: $e');
+      if (e is FirebaseAuthException) {
+        debugPrint('   FirebaseAuthException Code: ${e.code}');
+        debugPrint('   FirebaseAuthException Message: ${e.message}');
+      }
+      if (!mounted) return;
+      _handleLoginError(e);
+    } finally {
+      if (mounted) setState(() => _loadingApple = false);
+    }
+  }
+
+  Future<void> _handleGuestSignIn() async {
+    try {
+      setState(() => _loadingGuest = true);
+
+      final prefs = await SharedPreferences.getInstance();
+
+      // Intento silencioso de obtener token demo si hay servidor activo
+      try {
+        final url = Uri.parse(ApiConstants.baseUrl + '/auth/login/');
+        final body = {'username': 'paul@gmail.com', 'password': '12345678'};
+
+        final res = await http.post(
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(body),
+        ).timeout(const Duration(seconds: 4));
+
+        if (res.statusCode == 200) {
+          final dynamic decoded = jsonDecode(res.body);
+          if (decoded is Map<String, dynamic>) {
+            final dynamic tokenContainer =
+                (decoded['data'] is Map<String, dynamic>) ? decoded['data'] : decoded;
+
+            final dynamic accessRaw = tokenContainer['access'] ??
+                tokenContainer['access_token'] ??
+                tokenContainer['token'];
+            final dynamic refreshRaw =
+                tokenContainer['refresh'] ?? tokenContainer['refresh_token'];
+
+            final String accessToken = accessRaw?.toString().trim() ?? '';
+            final String refreshToken = refreshRaw?.toString().trim() ?? '';
+
+            if (accessToken.isNotEmpty) {
+              await prefs.setString('access_token', accessToken);
+              if (refreshToken.isNotEmpty) {
+                await prefs.setString('refresh_token', refreshToken);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('ℹ️ [GuestLogin] Petición demo omitida o sin conexión: $e');
+      }
+
+      // Marcamos como invitado y limpiamos datos de usuario registrado
+      await Future.wait([
+        prefs.setBool('isLoggedIn', false),
+        prefs.setBool('isGuest', true),
+        prefs.remove('google_name'),
+        prefs.remove('google_email'),
+        prefs.remove('google_photo'),
+        prefs.remove('google_id'),
+      ]);
+
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomePage()),
+      );
+    } catch (e) {
+      debugPrint('❌ Error Guest Sign-in: $e');
+      if (!mounted) return;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isGuest', true);
+      await prefs.setBool('isLoggedIn', false);
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const HomePage()),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingGuest = false);
+      }
     }
   }
 
@@ -684,6 +864,18 @@ class _LoginPageState extends State<LoginPage> {
                                     ),
                                   ),
                                 ),
+                                if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS) ...[
+                                  const SizedBox(height: 10),
+                                  SizedBox(
+                                    height: 48,
+                                    child: SignInWithAppleButton(
+                                      onPressed: _loadingApple ? () {} : _handleAppleSignIn,
+                                      text: 'Iniciar sesión con Apple',
+                                      style: SignInWithAppleButtonStyle.black,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -720,6 +912,35 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                             ),
                           ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 18),
+
+                      SizedBox(
+                        height: 50,
+                        child: OutlinedButton.icon(
+                          onPressed: busy ? null : _handleGuestSignIn,
+                          icon: _loadingGuest
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.explore_outlined, color: Colors.white, size: 22),
+                          label: Text(
+                            _loadingGuest ? 'Entrando...' : 'Explorar menú como invitado',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.white, width: 1.8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            backgroundColor: Colors.white.withOpacity(0.12),
+                          ),
                         ),
                       ),
                     ],

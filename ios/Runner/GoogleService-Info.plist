@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>408128401118-l69h1palsqoef3jonoebp1uaq3lldgpg.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.408128401118-l69h1palsqoef3jonoebp1uaq3lldgpg</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>408128401118-0fgol97bfsk9me2ndb2lgnp81ajdqn8k.apps.googleusercontent.com</string>
+	<key>API_KEY</key>
+	<string>AIzaSyCXyymlMV5fPD6RMxhMW-uBhjukab9saPY</string>
+	<key>GCM_SENDER_ID</key>
+	<string>408128401118</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.finatech.bubblesplash</string>
+	<key>PROJECT_ID</key>
+	<string>bubble-splash-36aa6</string>
+	<key>STORAGE_BUCKET</key>
+	<string>bubble-splash-36aa6.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:408128401118:ios:625da2e9fa78769a661c4f</string>
+</dict>
+</plist>

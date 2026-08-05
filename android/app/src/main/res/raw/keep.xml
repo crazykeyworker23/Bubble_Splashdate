@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Recursos que NO se deben eliminar al compilar en release.
+
+  El recorte de recursos de Android solo conserva lo que encuentra referenciado
+  desde código Java/Kotlin o XML. Estos iconos se piden por NOMBRE desde Dart
+  (flutter_local_notifications), así que el analizador no los ve y los borra:
+  el archivo desaparece del bundle aunque la entrada siga en la tabla, y en
+  tiempo de ejecución salta
+
+      PlatformException(invalid_large_icon, The resource ... could not be found)
+
+  ic_notification sobrevivía solo porque el AndroidManifest lo referencia como
+  icono por defecto de FCM; ic_notification_large no tenía ninguna referencia.
+-->
+<resources
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_notification,@drawable/ic_notification_large" />

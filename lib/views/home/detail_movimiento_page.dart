@@ -10,6 +10,9 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'dart:ui' as ui;
 
+import 'package:bubblesplash/services/sede_service.dart';
+
+import 'package:bubblesplash/utils/tamanos.dart';
 import 'movimiento.dart';
 
 class DetalleMovimientoPage extends StatefulWidget {
@@ -33,10 +36,48 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
   final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
-  // Datos de la empresa
-  final String _razonSocial = 'SPLASH BUBBLE';
-  final String _direccionEmpresa = 'Calle. Sargento Lores #762, Iquitos, Loreto';
-  final String _telefonoContacto = '+51 910 958 665';
+  // ------------------------------------------------------------------
+  // DATOS DE LA SEDE QUE EMITIÓ EL COMPROBANTE
+  //
+  // Se toman del movimiento (el backend envía `sede` en cada uno) para que al
+  // reimprimir una boleta salga el local donde se hizo la compra y no una
+  // dirección fija escrita en el código, que hacía que todo pareciera vendido
+  // en Iquitos.
+  // ------------------------------------------------------------------
+  Sede? _sede;
+
+  static const String _razonSocialPorDefecto = 'SPLASH BUBBLE';
+  static const String _direccionPorDefecto =
+      'Calle. Sargento Lores #762, Iquitos, Loreto';
+  static const String _telefonoPorDefecto = '+51 910 958 665';
+
+  String get _razonSocial {
+    final valor = _sede?.razonSocial.trim() ?? '';
+    return valor.isNotEmpty ? valor : _razonSocialPorDefecto;
+  }
+
+  String get _nombreSede => _sede?.name.trim() ?? '';
+
+  String get _direccionEmpresa {
+    final valor = _sede?.direccionCompleta.trim() ?? '';
+    return valor.isNotEmpty ? valor : _direccionPorDefecto;
+  }
+
+  String get _telefonoContacto {
+    final valor = _sede?.phone.trim() ?? '';
+    return valor.isNotEmpty ? valor : _telefonoPorDefecto;
+  }
+
+  String get _rucEmpresa => _sede?.ruc.trim() ?? '';
+
+  Future<void> _cargarSede() async {
+    final raw = widget.datosAdicionales?['sede'];
+    final sede = await SedeService.sedeParaComprobante(
+      raw is Map<String, dynamic> ? raw : null,
+    );
+    if (!mounted || sede == null) return;
+    setState(() => _sede = sede);
+  }
 
   String _formatToppingsForUi(dynamic raw) {
     if (raw is List) {
@@ -61,14 +102,20 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
   @override
   void initState() {
     super.initState();
+    _cargarSede();
     _initNotifications();
   }
 
   Future<void> _initNotifications() async {
     const AndroidInitializationSettings initAndroid =
         AndroidInitializationSettings('ic_notification');
+    const DarwinInitializationSettings initDarwin =
+        DarwinInitializationSettings();
     const InitializationSettings initSettings =
-        InitializationSettings(android: initAndroid);
+        InitializationSettings(
+      android: initAndroid,
+      iOS: initDarwin,
+    );
 
     await _notificationsPlugin.initialize(
       initSettings,
@@ -282,6 +329,20 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                 style: pw.TextStyle(fontSize: 14, color: PdfColors.grey800),
               ),
               pw.SizedBox(height: 6),
+              if (_nombreSede.isNotEmpty)
+                pw.Text(
+                  'Sede: $_nombreSede',
+                  style: pw.TextStyle(
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.grey800,
+                  ),
+                ),
+              if (_rucEmpresa.isNotEmpty)
+                pw.Text(
+                  'RUC: $_rucEmpresa',
+                  style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+                ),
               pw.Text(
                 'Dirección: $_direccionEmpresa',
                 style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
@@ -323,7 +384,7 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                     ? (map['price'] as num).toDouble()
                     : 0.0;
 
-                final String size = (map['size'] ?? '').toString();
+                final String size = etiquetaTamano((map['size'] ?? '').toString());
                 final String ice = (map['ice'] ?? '').toString();
 
                 final List<dynamic> toppingsRaw =
@@ -767,6 +828,23 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                                             color: Colors.black,
                                           ),
                                         ),
+                                        if (_nombreSede.isNotEmpty)
+                                          Text(
+                                            'Sede: $_nombreSede',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                        if (_rucEmpresa.isNotEmpty)
+                                          Text(
+                                            'RUC: $_rucEmpresa',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
                                         const SizedBox(height: 2),
                                         Text(
                                           _direccionEmpresa,
@@ -1000,9 +1078,9 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text(
-                                        'SPLASH BUBBLE',
-                                        style: TextStyle(
+                                      Text(
+                                        _razonSocial,
+                                        style: const TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.w800,
                                           color: Colors.black,
@@ -1010,16 +1088,27 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        esPedido
-                                            ? 'Comprobante de Pedido'
-                                            : (esCompra
-                                                ? 'Comprobante de Compra'
-                                                : 'Comprobante de Consumo'),
+                                        (esPedido
+                                                ? 'Comprobante de Pedido'
+                                                : (esCompra
+                                                    ? 'Comprobante de Compra'
+                                                    : 'Comprobante de Consumo')) +
+                                            (_nombreSede.isNotEmpty
+                                                ? ' · Sede $_nombreSede'
+                                                : ''),
                                         style: const TextStyle(
                                           fontSize: 14,
                                           color: Colors.black54,
                                         ),
                                       ),
+                                      if (_rucEmpresa.isNotEmpty)
+                                        Text(
+                                          'RUC: $_rucEmpresa',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
                                     ],
                                   ),
                                 ),
@@ -1077,20 +1166,22 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
 
                             const Divider(height: 20),
 
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            Wrap(
+                              alignment: WrapAlignment.spaceBetween,
+                              spacing: 8,
+                              runSpacing: 4,
                               children: [
                                 Text(
                                   'Pedido #: ${orderId.isNotEmpty ? orderId : '-'}',
-                                  style: const TextStyle(fontWeight: FontWeight.w500),
+                                  style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
                                 ),
                                 Text(
                                   'Fecha: $fechaSolo',
-                                  style: const TextStyle(fontWeight: FontWeight.w500),
+                                  style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
                                 ),
                                 Text(
                                   'Hora: ${horaSolo.isNotEmpty ? horaSolo : '--:--'}',
-                                  style: const TextStyle(fontWeight: FontWeight.w500),
+                                  style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
                                 ),
                               ],
                             ),
@@ -1131,7 +1222,7 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                                   ? (map['price'] as num).toDouble()
                                   : 0.0;
 
-                              final String size = (map['size'] ?? '').toString();
+                              final String size = etiquetaTamano((map['size'] ?? '').toString());
                               final String ice = (map['ice'] ?? '').toString();
 
                               final List<dynamic> toppingsRaw =
@@ -1156,10 +1247,15 @@ class _DetalleMovimientoPageState extends State<DetalleMovimientoPage> {
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Text(
-                                          '$quantity x $name',
-                                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                        Expanded(
+                                          child: Text(
+                                            '$quantity x $name',
+                                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
                                         ),
+                                        const SizedBox(width: 8),
                                         Text(
                                           'S/. ${(price * quantity).toStringAsFixed(2)}',
                                           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),

@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:bubblesplash/services/notificacion_router.dart';
+import 'package:bubblesplash/services/notificaciones_store.dart';
 
 import 'fcm_service.dart';
 import 'package:bubblesplash/widgets/in_app_notification_banner.dart';
@@ -53,6 +57,16 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print('⚡ [BG] Body Extraído: $body');
   print('⚡ [BG] Data: ${message.data}');
 
+  // Se archiva también aquí. Este handler corre en su propio isolate y no
+  // pasa por `showLocalNotification`, así que sin esta línea todo lo que
+  // llegara con la app cerrada faltaría luego en el listado.
+  await NotificacionesStore.guardar(
+    id: message.messageId ?? '',
+    titulo: title,
+    cuerpo: body,
+    datos: Map<String, dynamic>.from(message.data),
+  );
+
   // Si es un mensaje de tipo datos sin notificación directa del SO,
   // levantamos nosotros la notificación local en el isolate de background.
   if (message.notification == null) {
@@ -78,7 +92,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         priority: Priority.max,
         color: Color(0xFF0B3D4A), // Color azul marino de la marca
         colorized: true, // Pinta el fondo de la notificación con el color de marca
-        largeIcon: DrawableResourceAndroidBitmap('ic_launcher'), // Logo de la app a color
+        largeIcon: DrawableResourceAndroidBitmap('ic_notification_large'), // drawable/, NO mipmap
       );
 
       const NotificationDetails platformDetails = NotificationDetails(
@@ -91,7 +105,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         title.isNotEmpty ? title : 'Notificación',
         body,
         platformDetails,
-        payload: message.data.toString(),
+        payload: _armarPayload(message, title, body),
       );
       print('✅ [BG] Notificación local de datos mostrada en background');
     }
@@ -153,7 +167,14 @@ Future<void> initLocalNotifications() async {
     initSettings,
     onDidReceiveNotificationResponse: (details) {
       print('🟢 [LOCAL] Notificación tocada → ${details.payload}');
-      // Aquí podrías navegar usando un navigatorKey global si quieres
+      // El payload viaja como JSON para poder llevar `tipo` y `ruta`: sin
+      // ellos no hay forma de saber a qué pantalla corresponde el aviso.
+      final datos = _leerPayload(details.payload);
+      NotificacionRouter.abrir(
+        datos,
+        titulo: (datos['_titulo'] ?? '').toString(),
+        cuerpo: (datos['_cuerpo'] ?? '').toString(),
+      );
     },
   );
 
@@ -165,11 +186,55 @@ Future<void> initLocalNotifications() async {
   await androidImpl?.createNotificationChannel(defaultChannel);
 }
 
+/// Empaqueta la notificación para poder recuperarla cuando la toquen.
+///
+/// Va en JSON y no con `toString()`: el `toString()` de un Map no se puede
+/// volver a leer de forma fiable, así que el `tipo` y la `ruta` que manda el
+/// servidor —lo único que dice a qué pantalla lleva el aviso— se perdían por
+/// el camino.
+///
+/// El título y el cuerpo se guardan con nombres que empiezan por guion bajo
+/// para no chocar con ninguna clave que envíe el backend.
+String _armarPayload(RemoteMessage message, String title, String body) {
+  try {
+    return jsonEncode({
+      ...message.data,
+      '_titulo': title,
+      '_cuerpo': body,
+    });
+  } catch (_) {
+    return jsonEncode({'_titulo': title, '_cuerpo': body});
+  }
+}
+
+/// Vuelve a leer lo que guardó `_armarPayload`.
+///
+/// Nunca lanza: un payload corrupto debe abrir la app, no romperla.
+Map<String, dynamic> _leerPayload(String? payload) {
+  if (payload == null || payload.trim().isEmpty) return {};
+  try {
+    final decoded = jsonDecode(payload);
+    if (decoded is Map<String, dynamic>) return decoded;
+  } catch (_) {}
+  return {};
+}
+
 // ------------------------------------------------------
 // 5) FUNCIÓN: MOSTRAR NOTIFICACIÓN LOCAL
 // ------------------------------------------------------
 Future<void> showLocalNotification(RemoteMessage message) async {
   final notification = message.notification;
+
+  // Se archiva aquí porque es el punto por el que pasan todas: las de primer
+  // plano y las de segundo. El `messageId` evita que una misma notificación
+  // entre dos veces cuando ambos caminos la procesan.
+  final _guardado = _extractTitleAndBody(message);
+  NotificacionesStore.guardar(
+    id: message.messageId ?? '',
+    titulo: _guardado['title'] ?? '',
+    cuerpo: _guardado['body'] ?? '',
+    datos: Map<String, dynamic>.from(message.data),
+  );
 
   print('🔔 [LOCAL] Preparando notificación local...');
   print('🔔 [LOCAL] data: ${message.data}');
@@ -194,7 +259,7 @@ Future<void> showLocalNotification(RemoteMessage message) async {
     priority: Priority.max,
     color: const Color(0xFF0B3D4A), // Color azul marino de la marca
     colorized: true, // Pinta el fondo de la notificación con el color de marca
-    largeIcon: const DrawableResourceAndroidBitmap('ic_launcher'), // Logo de la app a color
+    largeIcon: const DrawableResourceAndroidBitmap('ic_notification_large'), // drawable/, NO mipmap
   );
 
   const DarwinNotificationDetails iosDetails = DarwinNotificationDetails();
@@ -209,7 +274,7 @@ Future<void> showLocalNotification(RemoteMessage message) async {
     title.isNotEmpty ? title : 'Notificación',
     body,
     platformDetails,
-    payload: message.data.toString(),
+    payload: _armarPayload(message, title, body),
   );
 
   print('✅ [LOCAL] Notificación local mostrada');
@@ -219,62 +284,115 @@ Future<void> showLocalNotification(RemoteMessage message) async {
 // 6) FUNCIÓN PRINCIPAL DE INICIALIZACIÓN DE SERVICIOS
 // ------------------------------------------------------
 Future<void> initializeAppServices() async {
-  // Inicializar Firebase
-  await Firebase.initializeApp();
+  bool isFirebaseInitialized = false;
 
-  // Registrar handler de background
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  // Inicializar Firebase
+  try {
+    await Firebase.initializeApp();
+    isFirebaseInitialized = true;
+    print('✅ [INIT] Firebase inicializado con éxito');
+  } catch (e) {
+    print('⚠️ [INIT] Error al inicializar Firebase (archivo config faltante o corrupto): $e');
+  }
+
+  if (isFirebaseInitialized) {
+    try {
+      // Registrar handler de background
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    } catch (e) {
+      print('⚠️ [INIT] Error al registrar FCM background handler: $e');
+    }
+  }
 
   // Inicializar notificaciones locales
-  await initLocalNotifications();
+  try {
+    await initLocalNotifications();
+  } catch (e) {
+    print('⚠️ [INIT] Error al inicializar notificaciones locales: $e');
+  }
 
-  // Pedir permiso para mostrar notificaciones (popup SO)
-  await requestNotificationPermissions();
-
-  // Listener: cuando llega un mensaje con la app ABIERTA (foreground)
-  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-    print('📩 [FG] Mensaje en FOREGROUND: ${message.messageId}');
-    print('📩 [FG] Data: ${message.data}');
-
-    // Extraer título y cuerpo usando el helper ultra seguro
-    final extracted = _extractTitleAndBody(message);
-    final title = extracted['title']!;
-    final body = extracted['body']!;
-
-    print('📩 [FG] Title Extraído: $title, Body Extraído: $body');
-
-    if (title.isNotEmpty || body.isNotEmpty) {
-      InAppNotificationBanner.show(
-        title: title.isNotEmpty ? title : 'Notificación',
-        body: body,
-      );
+  if (isFirebaseInitialized) {
+    // Pedir permiso para mostrar notificaciones (popup SO)
+    try {
+      await requestNotificationPermissions();
+    } catch (e) {
+      print('⚠️ [INIT] Error al solicitar permisos de notificación: $e');
     }
 
-    showLocalNotification(message);
-  });
+    // Listener: cuando llega un mensaje con la app ABIERTA (foreground)
+    try {
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        print('📩 [FG] Mensaje en FOREGROUND: ${message.messageId}');
+        print('📩 [FG] Data: ${message.data}');
 
-  // Listener: cuando el usuario toca una notificación y abre la app
-  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-    print('🚪 [OPEN] Notificación abierta desde bandeja: ${message.messageId}');
-    print('🚪 [OPEN] Title: ${message.notification?.title}');
-    print('🚪 [OPEN] Body: ${message.notification?.body}');
-    print('🚪 [OPEN] Data: ${message.data}');
-    // Aquí puedes navegar, por ejemplo:
-    // navigatorKey.currentState?.pushNamed('/detalle', arguments: message.data);
-  });
+        // Extraer título y cuerpo usando el helper ultra seguro
+        final extracted = _extractTitleAndBody(message);
+        final title = extracted['title']!;
+        final body = extracted['body']!;
 
-  // Manejo de la notificación que abrió la app desde un estado TERMINADO (tercer plano)
-  FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
-    if (message != null) {
-      print('🚀 [INITIAL] App abierta desde notificación terminada: ${message.messageId}');
-      print('🚀 [INITIAL] Title: ${message.notification?.title}');
-      print('🚀 [INITIAL] Body: ${message.notification?.body}');
-      print('🚀 [INITIAL] Data: ${message.data}');
+        print('📩 [FG] Title Extraído: $title, Body Extraído: $body');
+
+        if (title.isNotEmpty || body.isNotEmpty) {
+          InAppNotificationBanner.show(
+            title: title.isNotEmpty ? title : 'Notificación',
+            body: body,
+            // Con la app abierta el aviso sale como banner. Tocarlo tiene que
+            // llevar al mismo sitio que tocarlo en la bandeja: si uno navega
+            // y el otro no, el comportamiento depende de dónde estabas
+            // mirando, que es justo lo que confunde.
+            onTap: () => NotificacionRouter.abrir(
+              Map<String, dynamic>.from(message.data),
+              titulo: title,
+              cuerpo: body,
+            ),
+          );
+        }
+
+        showLocalNotification(message);
+      });
+    } catch (e) {
+      print('⚠️ [INIT] Error en onMessage listener: $e');
     }
-  });
 
-  // Inicializar/actualizar token FCM y enviarlo al backend de forma asíncrona
-  FcmService.initAndSendTokenIfPossible().catchError((e) {
-    print('⚠️ Error al inicializar/enviar token FCM (app_init): $e');
-  });
+    // Listener: cuando el usuario toca una notificación y abre la app
+    try {
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        print('🚪 [OPEN] Notificación abierta desde bandeja: ${message.messageId}');
+        final extraido = _extractTitleAndBody(message);
+        NotificacionRouter.abrir(
+          Map<String, dynamic>.from(message.data),
+          titulo: extraido['title'] ?? '',
+          cuerpo: extraido['body'] ?? '',
+        );
+      });
+    } catch (e) {
+      print('⚠️ [INIT] Error en onMessageOpenedApp listener: $e');
+    }
+
+    // Manejo de la notificación que abrió la app desde un estado TERMINADO (tercer plano)
+    try {
+      FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+        if (message != null) {
+          print('🚀 [INITIAL] App abierta desde notificación terminada: ${message.messageId}');
+          final extraido = _extractTitleAndBody(message);
+          // Se espera a que haya un Navigator montado: en este punto la app
+          // aún está arrancando y navegar ahora no llevaría a ninguna parte.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            NotificacionRouter.abrir(
+              Map<String, dynamic>.from(message.data),
+              titulo: extraido['title'] ?? '',
+              cuerpo: extraido['body'] ?? '',
+            );
+          });
+        }
+      });
+    } catch (e) {
+      print('⚠️ [INIT] Error en getInitialMessage: $e');
+    }
+
+    // Inicializar/actualizar token FCM y enviarlo al backend de forma asíncrona
+    FcmService.initAndSendTokenIfPossible().catchError((e) {
+      print('⚠️ Error al inicializar/enviar token FCM (app_init): $e');
+    });
+  }
 }

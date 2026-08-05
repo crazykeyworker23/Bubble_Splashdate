@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:bubblesplash/views/home/referidos_page.dart';
 import 'package:bubblesplash/services/session_manager.dart';
 
 import 'mi_perfil_page.dart';
@@ -162,6 +163,15 @@ class ConfiguracionPage extends StatelessWidget {
               ),
             ),
             _divider(),
+            _opcionItem(
+              icon: Icons.groups_outlined,
+              text: 'Código de referido',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ReferidosPage()),
+              ),
+            ),
+            _divider(),
             // _opcionItem(
             //   icon: Icons.lock_outline,
             //   text: 'Seguridad',
@@ -199,16 +209,16 @@ class ConfiguracionPage extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const TerminosPage()),
               ),
             ),
-            // _divider(),
-            // _opcionItem(
-            //   icon: Icons.delete_outline,
-            //   text: 'Eliminar Cuenta',
-            //   color: Colors.red,
-            //   onTap: () => Navigator.push(
-            //     context,
-            //     MaterialPageRoute(builder: (_) => const EliminarCuentaPage()),
-            //   ),
-            // ),
+            _divider(),
+            _opcionItem(
+              icon: Icons.delete_outline,
+              text: 'Eliminar Cuenta',
+              color: Colors.red,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const EliminarCuentaPage()),
+              ),
+            ),
           ],
         ),
       ),

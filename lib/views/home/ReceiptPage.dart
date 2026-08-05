@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -16,6 +15,9 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:media_store_plus/media_store_plus.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:android_intent_plus/flag.dart';
+import 'package:bubblesplash/services/sede_service.dart';
+import 'package:bubblesplash/services/movimientos_service.dart';
+import 'package:bubblesplash/utils/tamanos.dart';
 
 class ReceiptPage extends StatefulWidget {
   final List<Map<String, dynamic>> finalPedidos;
@@ -31,6 +33,12 @@ class ReceiptPage extends StatefulWidget {
   final String? backendDate;
   final String? backendTime;
   final bool alreadyPaid;
+
+  /// Sede que emite el comprobante, tal como la devolvió el backend con el
+  /// pedido (`pedido['sede']`). Es la que se imprime: cada local tiene su
+  /// razón social, dirección, teléfono y RUC. Si no llega, se resuelve con la
+  /// sede del usuario.
+  final Map<String, dynamic>? sedeJson;
 
   // Se genera automáticamente un ID de pedido aleatorio
   late final String orderId = (Random().nextInt(900000) + 100000)
@@ -57,6 +65,7 @@ class ReceiptPage extends StatefulWidget {
     this.backendDate,
     this.backendTime,
     this.alreadyPaid = false,
+    this.sedeJson,
   });
 
   @override
@@ -74,11 +83,45 @@ class _ReceiptPageState extends State<ReceiptPage> {
   bool _mediaStoreReady = false;
   bool _walletApplied = false;
 
-  // Datos de la empresa
-  final String _razonSocial = 'SPLASH BUBBLE';
-  final String _direccionEmpresa =
+  // ------------------------------------------------------------------
+  // DATOS DE LA SEDE QUE EMITE EL COMPROBANTE
+  //
+  // Antes estaban escritos aquí como constantes, así que una boleta de Jaén
+  // o Tarapoto salía con la dirección y el teléfono de Iquitos. Ahora vienen
+  // de la sede del pedido; los valores de abajo son sólo el último recurso
+  // para que el comprobante nunca salga con huecos.
+  // ------------------------------------------------------------------
+  Sede? _sede;
+
+  static const String _razonSocialPorDefecto = 'SPLASH BUBBLE';
+  static const String _direccionPorDefecto =
       'Calle. Sargento Lores #762, Iquitos, Loreto';
-  final String _telefonoContacto = '+51 910 958 665';
+  static const String _telefonoPorDefecto = '+51 910 958 665';
+
+  String get _razonSocial {
+    final valor = _sede?.razonSocial.trim() ?? '';
+    return valor.isNotEmpty ? valor : _razonSocialPorDefecto;
+  }
+
+  String get _nombreSede => _sede?.name.trim() ?? '';
+
+  String get _direccionEmpresa {
+    final valor = _sede?.direccionCompleta.trim() ?? '';
+    return valor.isNotEmpty ? valor : _direccionPorDefecto;
+  }
+
+  String get _telefonoContacto {
+    final valor = _sede?.phone.trim() ?? '';
+    return valor.isNotEmpty ? valor : _telefonoPorDefecto;
+  }
+
+  String get _rucEmpresa => _sede?.ruc.trim() ?? '';
+
+  Future<void> _cargarSede() async {
+    final sede = await SedeService.sedeParaComprobante(widget.sedeJson);
+    if (!mounted || sede == null) return;
+    setState(() => _sede = sede);
+  }
 
   int _asInt(dynamic value) {
     if (value is int) return value;
@@ -137,7 +180,10 @@ class _ReceiptPageState extends State<ReceiptPage> {
     // Si el pedido ya fue pagado en el backend, reflejarlo en la UI
     _pagado = widget.alreadyPaid;
 
-    final user = FirebaseAuth.instance.currentUser;
+    User? user;
+    try {
+      user = FirebaseAuth.instance.currentUser;
+    } catch (_) {}
     if (user != null) {
       _nombreCliente =
           (user.displayName != null && user.displayName!.trim().isNotEmpty)
@@ -159,12 +205,17 @@ class _ReceiptPageState extends State<ReceiptPage> {
 
     // Eliminado código de compra
 
+    _cargarSede();
     _initNotifications();
 
     // Si ya viene pagado desde el carrito, aplicar efectos locales una sola vez.
+    // Se espera a tener la sede resuelta para guardarla junto al detalle: así
+    // la boleta se reimprime después con el local correcto aunque el cliente
+    // haya cambiado de sede.
     if (widget.alreadyPaid && widget.applyWalletDeduction) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _registrarCompraLocal();
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _cargarSede();
+        await _registrarCompraLocal();
       });
     }
   }
@@ -173,34 +224,44 @@ class _ReceiptPageState extends State<ReceiptPage> {
     if (_walletApplied) return;
     _walletApplied = true;
 
-    // Registrar movimiento de compra en el historial del usuario
     final prefs = await SharedPreferences.getInstance();
-    final user = FirebaseAuth.instance.currentUser;
+    User? user;
+    try {
+      user = FirebaseAuth.instance.currentUser;
+    } catch (_) {}
     final String? email = prefs.getString('google_email') ?? prefs.getString('savedEmail');
     final String? userUniqueId = user?.uid ?? (email != null && email.isNotEmpty ? email : null);
-    final String? keyMovs = userUniqueId != null ? 'movimientos_$userUniqueId' : null;
-    final List<String> data = keyMovs != null
-        ? (prefs.getStringList(keyMovs) ?? [])
-        : <String>[];
 
-    final movimiento = {
-      'tipo': 'gasto',
-      'monto': total,
-      'metodo': 'Compra de productos',
-      'referencia':
-          'Pedido ${widget.orderId} (${widget.finalPedidos.length} productos)',
-      'fecha': '${widget.date} ${widget.time}',
-      // 'codigo': _codigoCompra, // Eliminado
-      // Datos adicionales para poder reconstruir la boleta en Movimientos
-      'orderId': widget.orderId,
-      'dineOption': widget.dineOption,
-      'items': widget.finalPedidos,
-      'cliente': _nombreCliente ?? 'Cliente',
-    };
-
-    data.insert(0, jsonEncode(movimiento));
-    if (keyMovs != null) {
-      await prefs.setStringList(keyMovs, data);
+    // El movimiento de billetera lo crea el BACKEND cuando se paga el pedido;
+    // aquí sólo se guarda el DETALLE (productos, tipo de entrega, sede) que el
+    // listado de movimientos no devuelve y que hace falta para reimprimir la
+    // boleta.
+    //
+    // Se guarda bajo el número de pedido del servidor: es lo que permite pegar
+    // este detalle sobre su movimiento. Antes se guardaba como un movimiento
+    // más, con un número de pedido inventado en el teléfono, y por eso cada
+    // compra salía DOS veces en el historial.
+    //
+    // Sin número de pedido no hay forma de emparejarlo, así que no se guarda:
+    // es preferible una boleta sin el desglose de productos que una compra
+    // repetida.
+    final String numeroPedido = (widget.backendOrderNumber ?? '').trim();
+    if (numeroPedido.isNotEmpty) {
+      await MovimientosService.guardarDetalleCompra(
+        numeroPedido: numeroPedido,
+        detalle: {
+          'tipo': 'gasto',
+          'monto': total,
+          'metodo': 'Compra de productos',
+          'referencia': 'Pedido $numeroPedido (${widget.finalPedidos.length} productos)',
+          'fecha': '${widget.date} ${widget.time}',
+          'orderId': numeroPedido,
+          'dineOption': widget.dineOption,
+          'items': widget.finalPedidos,
+          'cliente': _nombreCliente ?? 'Cliente',
+          if (_sede != null) 'sede': _sede!.toJson(),
+        },
+      );
     }
 
     // Acumular puntos por compra: 1 punto por cada sol del total
@@ -220,9 +281,14 @@ class _ReceiptPageState extends State<ReceiptPage> {
   Future<void> _initNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('ic_notification');
+    const DarwinInitializationSettings initializationSettingsDarwin =
+        DarwinInitializationSettings();
 
     const InitializationSettings initializationSettings =
-        InitializationSettings(android: initializationSettingsAndroid);
+        InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsDarwin,
+    );
 
     await _notificationsPlugin.initialize(
       initializationSettings,
@@ -366,6 +432,20 @@ class _ReceiptPageState extends State<ReceiptPage> {
                 style: pw.TextStyle(fontSize: 14, color: PdfColors.grey800),
               ),
               pw.SizedBox(height: 6),
+              if (_nombreSede.isNotEmpty)
+                pw.Text(
+                  'Sede: $_nombreSede',
+                  style: pw.TextStyle(
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.grey800,
+                  ),
+                ),
+              if (_rucEmpresa.isNotEmpty)
+                pw.Text(
+                  'RUC: $_rucEmpresa',
+                  style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+                ),
               pw.Text(
                 'Dirección: $_direccionEmpresa',
                 style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
@@ -403,7 +483,7 @@ class _ReceiptPageState extends State<ReceiptPage> {
                 final double price = (item['price'] is num)
                     ? (item['price'] as num).toDouble()
                     : 0.0;
-                final String size = item['size'] ?? '';
+                final String size = etiquetaTamano(item['size']?.toString());
                 final String ice = item['ice'] ?? '';
                 final List<dynamic> rawToppings = (item['toppings'] is List)
                     ? item['toppings']
@@ -695,13 +775,23 @@ class _ReceiptPageState extends State<ReceiptPage> {
                                   ),
                                 ),
                                 const SizedBox(height: 2),
-                                const Text(
-                                  'Comprobante de Pedido',
-                                  style: TextStyle(
+                                Text(
+                                  _nombreSede.isNotEmpty
+                                      ? 'Comprobante de Pedido · Sede $_nombreSede'
+                                      : 'Comprobante de Pedido',
+                                  style: const TextStyle(
                                     fontSize: 14,
                                     color: Colors.black54,
                                   ),
                                 ),
+                                if (_rucEmpresa.isNotEmpty)
+                                  Text(
+                                    'RUC: $_rucEmpresa',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
@@ -710,7 +800,7 @@ class _ReceiptPageState extends State<ReceiptPage> {
 
                       const SizedBox(height: 10),
 
-                      // 🔹 Datos de la empresa
+                      // 🔹 Datos de la sede que emite
                       Row(
                         children: [
                           const Icon(
@@ -826,7 +916,7 @@ class _ReceiptPageState extends State<ReceiptPage> {
                             ? (item['price'] as num).toDouble()
                             : 0.0;
 
-                        final String size = item['size'] ?? '';
+                        final String size = etiquetaTamano(item['size']?.toString());
                         final String ice = item['ice'] ?? '';
                         final List<dynamic> rawToppings =
                             (item['toppings'] is List) ? item['toppings'] : [];

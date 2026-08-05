@@ -18,10 +18,11 @@ class MenuPrefetcher {
     try {
       final prefs = await SharedPreferences.getInstance();
       final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+      final bool isGuest = prefs.getBool('isGuest') ?? false;
       final String token = (prefs.getString('access_token') ?? '').trim();
 
-      if (!isLoggedIn || token.isEmpty) {
-        debugPrint('ℹ️ [MenuPrefetcher] Usuario no autenticado. Omitiendo precarga de productos.');
+      if ((!isLoggedIn && !isGuest) || token.isEmpty) {
+        debugPrint('ℹ️ [MenuPrefetcher] Usuario no autenticado y no invitado. Omitiendo precarga de productos.');
         return;
       }
 

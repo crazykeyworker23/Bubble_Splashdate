@@ -13,6 +13,8 @@ import '../services/user_profile_service.dart';
 import '../services/session_manager.dart';
 import '../services/user_info_service.dart';
 import '../services/avatar_upload_service.dart';
+import '../services/sede_service.dart';
+import 'sede_selector_field.dart';
 import '../services/auth_service.dart';
 
 import '../constants/api_constants.dart';
@@ -78,6 +80,10 @@ class _MiPerfilPageState extends State<MiPerfilPage>
   ];
 
   final ImagePicker _imagePicker = ImagePicker();
+
+  /// Sede del cliente: define a qué local llegan sus pedidos.
+  Sede? _sede;
+  bool _sedeGuardando = false;
   File? _localAvatarFile;
 
   // Animaciones
@@ -241,6 +247,16 @@ class _MiPerfilPageState extends State<MiPerfilPage>
           _avatarUrlController.text = profile.avatarUrl ?? '';
           _phoneController.text = profile.celular ?? '';
         });
+
+        // Sede del cliente (perfil Bubble). Se consulta aparte porque vive en
+        // el módulo bubblesplash, no en el usuario base.
+        final bubbleProfile = await SedeService.fetchMyProfile();
+        if (mounted && bubbleProfile != null) {
+          final dynamic sedeJson = bubbleProfile['sede'];
+          if (sedeJson is Map<String, dynamic>) {
+            setState(() => _sede = Sede.fromJson(sedeJson));
+          }
+        }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -311,8 +327,23 @@ class _MiPerfilPageState extends State<MiPerfilPage>
         }
       }
 
+      // ✅ La sede se guarda en el perfil Bubble (endpoint propio).
+      if (_sede != null) {
+        setState(() => _sedeGuardando = true);
+        final ok = await SedeService.updateMySede(_sede!);
+        if (mounted) setState(() => _sedeGuardando = false);
+        if (!ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No se pudo actualizar tu sede. Intenta nuevamente.'),
+            ),
+          );
+        }
+      }
+
       final patchBody = <String, dynamic>{
         'use_txt_fcm': fcmValue,
+        'use_txt_fullname': _fullNameController.text.trim(),
         'use_txt_age': _ageController.text.trim(),
         'use_txt_gender': _genderController.text.trim(),
         'use_txt_description': _descriptionController.text.trim(),
@@ -474,12 +505,16 @@ class _MiPerfilPageState extends State<MiPerfilPage>
                 child: Icon(icon, color: _brandTeal, size: 20),
               ),
               const SizedBox(width: 10),
-              Text(
-                title,
-                style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: _brandDark),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: _brandDark),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
               if (_editMode) ...[
                 const Spacer(),
@@ -674,14 +709,23 @@ class _MiPerfilPageState extends State<MiPerfilPage>
                                         TextFormField(
                                           controller:
                                               _fullNameController,
-                                          readOnly: true,
+                                          readOnly: !_editMode,
+                                          textCapitalization:
+                                              TextCapitalization.words,
                                           decoration:
                                               _premiumInputDecoration(
-                                            label:
-                                                "Nombre completo (no editable)",
+                                            label: "Nombre completo",
                                             icon: Icons.person_outline,
-                                            isReadOnly: true,
                                           ),
+                                          validator: _editMode
+                                              ? (v) {
+                                                  if (v == null ||
+                                                      v.trim().length < 3) {
+                                                    return 'Ingresa tu nombre completo';
+                                                  }
+                                                  return null;
+                                                }
+                                              : null,
                                         ),
                                         const SizedBox(height: 10),
                                         TextFormField(
@@ -737,6 +781,20 @@ class _MiPerfilPageState extends State<MiPerfilPage>
                                                             _genderOptions
                                                                 .first),
                                                   ),
+                                        ),
+                                      ],
+                                    ),
+                                    _sectionCard(
+                                      title: "Mi sede",
+                                      icon: Icons.storefront_rounded,
+                                      children: [
+                                        SedeSelectorField(
+                                          selectedSedeId: _sede?.id,
+                                          enabled: _editMode && !_sedeGuardando,
+                                          onChanged: (sede) =>
+                                              setState(() => _sede = sede),
+                                          helperText:
+                                              'Tus pedidos llegan a esta sede y aquí ves su catálogo y beneficios.',
                                         ),
                                       ],
                                     ),
