@@ -5,6 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:bubblesplash/services/app_http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bubblesplash/constants/backend_config.dart';
+import 'package:bubblesplash/constants/service_code.dart';
 
 /// Registro del token FCM del dispositivo contra el backend.
 ///
@@ -124,6 +125,13 @@ class FcmService {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
           'Authorization': 'Bearer $accessToken',
+          // A qué app pertenece este token.
+          //
+          // Sin esta cabecera el servidor lo guarda en un campo compartido por
+          // todos los servicios, y si la persona usa también Date & Doing con
+          // la misma cuenta, la última app en iniciar sesión pisa el token de
+          // la otra. Las dos acaban sin recibir notificaciones.
+          'X-Service-Code': kServiceCode,
         },
         body: jsonEncode({'use_txt_fcm': token}),
       );
@@ -160,6 +168,9 @@ class FcmService {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
               'Authorization': 'Bearer $accessToken',
+              // También al soltarlo: cerrar sesión aquí no debe dejar sin
+              // notificaciones a la otra app de la misma cuenta.
+              'X-Service-Code': kServiceCode,
             },
             body: jsonEncode({'use_txt_fcm': token}),
           );
